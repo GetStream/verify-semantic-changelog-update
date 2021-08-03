@@ -1,16 +1,92 @@
-import * as core from '@actions/core'
-import {wait} from './wait'
+import core from '@actions/core'
+import {context, getOctokit} from '@actions/github'
+import {validatePrTitle} from './validatePrTitle'
+
+const defaultTypes = ['fix', 'feat', 'refactor']
 
 async function run(): Promise<void> {
   try {
-    const ms: string = core.getInput('milliseconds')
-    core.debug(`Waiting ${ms} milliseconds ...`) // debug is only output if you set the secret `ACTIONS_RUNNER_DEBUG` to true
+    const GITHUB_TOKEN = process.env.GITHUB_TOKEN!
+    const octokit = getOctokit(GITHUB_TOKEN)
 
-    core.debug(new Date().toTimeString())
-    await wait(parseInt(ms, 10))
-    core.debug(new Date().toTimeString())
+    const types = core.getMultilineInput('types') ?? defaultTypes
+    const scopes = core.getMultilineInput('scopes', {required: true})
+    const changelogPath = core.getInput('path', {required: true})
 
-    core.setOutput('time', new Date().toTimeString())
+    // Debug log the payload.
+    core.debug(`Payload keys: ${Object.keys(context.payload)}`)
+
+    const contextPullRequest = context.payload.pull_request
+    if (!contextPullRequest) {
+      throw new Error(
+        "This action can only be invoked in `pull_request_target` or `pull_request` events. Otherwise the pull request can't be inferred."
+      )
+    }
+
+    const owner = contextPullRequest.base.user.login
+    const repo = contextPullRequest.base.repo.name
+
+    // The pull request info on the context isn't up to date. When
+    // the user updates the title and re-runs the workflow, it would
+    // be outdated. Therefore fetch the pull request via the REST API
+    // to ensure we use the current title.
+    const {data: pullRequest} = await octokit.pulls.get({
+      owner,
+      repo,
+      pull_number: contextPullRequest.number
+    })
+
+    // Validate if PrTitle is conventional and matches one of [types]
+    const {type: prType, scopes: prScopes} = await validatePrTitle(
+      pullRequest.title,
+      scopes
+    )
+
+    // Define the base and head commits to be extracted from the context.
+    const base = contextPullRequest?.base?.sha
+    const head = contextPullRequest?.head?.sha
+
+    // Log the base and head commits
+    core.info(`Base commit: ${base}`)
+    core.info(`Head commit: ${head}`)
+
+    // Ensure that the base and head properties are set on the payload.
+    if (!base || !head) {
+      throw new Error(
+        `The base and head commits are missing from the payload for this ${context.eventName} event. Please submit an issue on this action's GitHub repo.`
+      )
+    }
+
+    // Use GitHub's compare two commits API.
+    // https://developer.github.com/v3/repos/commits/#compare-two-commits
+    const response = await octokit.repos.compareCommits({
+      base,
+      head,
+      owner: context.repo.owner,
+      repo: context.repo.repo
+    })
+
+    // Ensure that the request was successful.
+    if (response.status !== 200) {
+      throw new Error(
+        `The GitHub API for comparing the base and head commits for this ${context.eventName} event returned ${response.status}, expected 200. Please submit an issue on this action's GitHub repo.`
+      )
+    }
+
+    // Ensure that the head commit is ahead of the base commit.
+    if (response.data.status !== 'ahead') {
+      throw new Error(
+        `The head commit for this ${context.eventName} event is not ahead of the base commit. Please submit an issue on this action's GitHub repo.`
+      )
+    }
+
+    // Get the changed files from the response payload.
+    const files = response.data.files
+    if (files) {
+      for (const file of files) {
+        core.info(`File: ${file}`)
+      }
+    }
   } catch (error) {
     core.setFailed(error.message)
   }
