@@ -4,10 +4,10 @@ import {sync as parser} from 'conventional-commits-parser'
 
 export async function validatePrTitle(
   prTitle: string,
-  scopes: string[]
+  scopes: string[] | undefined
 ): Promise<{
   type: string
-  scopes: string[]
+  scopes: string[] | undefined
   subject: string
   breaking: boolean
 }> {
@@ -27,7 +27,8 @@ export async function validatePrTitle(
   }
 
   function isUnknownScope(s: string): boolean {
-    return scopes && !scopes.includes(s)
+    if (scopes) return !scopes.includes(s)
+    return false
   }
 
   if (!result.type) {
@@ -48,7 +49,7 @@ export async function validatePrTitle(
     )
   }
 
-  if (!result.scope) {
+  if (scopes && !result.scope) {
     throw new Error(
       `No scope found in pull request title "${prTitle}". Use one of the available scopes: ${scopes.join(
         ', '
@@ -63,9 +64,9 @@ export async function validatePrTitle(
     )
   }
 
-  const givenScopes = (result.scope as string)
-    .split(',')
-    .map(scope => scope.trim())
+  const givenScopes = result.scope
+    ? (result.scope as string).split(',').map(scope => scope.trim())
+    : undefined
   const unknownScopes = givenScopes ? givenScopes.filter(isUnknownScope) : []
 
   if (scopes && unknownScopes.length > 0) {

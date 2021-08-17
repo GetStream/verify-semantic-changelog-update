@@ -11,8 +11,12 @@ import assert from 'assert'
  * @returns   Scopes
  *
  */
-function getJsonInput(name: string, options?: core.InputOptions): Scopes {
-  return JSON.parse(core.getInput(name, options))
+function getJsonInput(
+  name: string,
+  options?: core.InputOptions
+): Scopes | undefined {
+  const input = core.getInput(name, options)
+  if (input) return JSON.parse(input)
 }
 
 interface Scopes {
@@ -30,7 +34,7 @@ async function run(): Promise<void> {
     const filePath = core.getInput('path')
 
     core.info(`Types: ${types}`)
-    core.info(`Scopes: ${JSON.stringify(scopes, null, 4)}`)
+    if (scopes) core.info(`Scopes: ${JSON.stringify(scopes, null, 4)}`)
     core.info(`FilePath: ${filePath}`)
 
     // Debug log the payload.
@@ -61,7 +65,10 @@ async function run(): Promise<void> {
       type: prType,
       scopes: prScopes,
       breaking: prBreaking
-    } = await validatePrTitle(pullRequest.title, Object.keys(scopes))
+    } = await validatePrTitle(
+      pullRequest.title,
+      scopes ? Object.keys(scopes) : undefined
+    )
 
     const breaking = prBreaking || types.includes(prType)
 
@@ -109,22 +116,28 @@ async function run(): Promise<void> {
         file => file.status === 'modified'
       )
       if (modifiedFiles) {
-        for (const scope of prScopes) {
-          let path = filePath
-          const scopePath = scopes[scope]
-          if (scopePath) {
-            if (scopePath !== '' && scopePath !== '.') {
-              path = `${scopePath}/${filePath}`
-            }
-          }
+        const verifyChangelogModified = (fileName: string): void => {
           const changelogModified = modifiedFiles.some(
-            file => file.filename === path
+            file => file.filename === fileName
           )
           if (!changelogModified) {
             throw new Error(
-              `File ${path} not updated for the pull request: ${pullRequest.title}`
+              `File ${fileName} not updated for the pull request: ${pullRequest.title}`
             )
           }
+        }
+
+        if (scopes && prScopes) {
+          let path = filePath
+          for (const scope of prScopes) {
+            const scopePath = scopes[scope]
+            if (scopePath !== '' && scopePath !== '.') {
+              path = `${scopePath}/${filePath}`
+            }
+            verifyChangelogModified(path)
+          }
+        } else {
+          verifyChangelogModified(filePath)
         }
       }
     }

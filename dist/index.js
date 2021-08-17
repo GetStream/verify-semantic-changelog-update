@@ -51,7 +51,9 @@ const assert_1 = __importDefault(__nccwpck_require__(2357));
  *
  */
 function getJsonInput(name, options) {
-    return JSON.parse(core.getInput(name, options));
+    const input = core.getInput(name, options);
+    if (input)
+        return JSON.parse(input);
 }
 function run() {
     var _a, _b, _c;
@@ -64,7 +66,8 @@ function run() {
             const scopes = getJsonInput('scopes');
             const filePath = core.getInput('path');
             core.info(`Types: ${types}`);
-            core.info(`Scopes: ${JSON.stringify(scopes, null, 4)}`);
+            if (scopes)
+                core.info(`Scopes: ${JSON.stringify(scopes, null, 4)}`);
             core.info(`FilePath: ${filePath}`);
             // Debug log the payload.
             core.debug(`Payload keys: ${Object.keys(github_1.context.payload)}`);
@@ -84,7 +87,7 @@ function run() {
                 pull_number: contextPullRequest.number
             });
             // Validate if PrTitle is conventional and matches one of [types]
-            const { type: prType, scopes: prScopes, breaking: prBreaking } = yield validatePrTitle_1.validatePrTitle(pullRequest.title, Object.keys(scopes));
+            const { type: prType, scopes: prScopes, breaking: prBreaking } = yield validatePrTitle_1.validatePrTitle(pullRequest.title, scopes ? Object.keys(scopes) : undefined);
             const breaking = prBreaking || types.includes(prType);
             if (breaking) {
                 // Define the base and head commits to be extracted from the context.
@@ -116,18 +119,24 @@ function run() {
                 // Get the changed files from the response payload.
                 const modifiedFiles = (_c = response.data.files) === null || _c === void 0 ? void 0 : _c.filter(file => file.status === 'modified');
                 if (modifiedFiles) {
-                    for (const scope of prScopes) {
+                    const verifyChangelogModified = (fileName) => {
+                        const changelogModified = modifiedFiles.some(file => file.filename === fileName);
+                        if (!changelogModified) {
+                            throw new Error(`File ${fileName} not updated for the pull request: ${pullRequest.title}`);
+                        }
+                    };
+                    if (scopes && prScopes) {
                         let path = filePath;
-                        const scopePath = scopes[scope];
-                        if (scopePath) {
+                        for (const scope of prScopes) {
+                            const scopePath = scopes[scope];
                             if (scopePath !== '' && scopePath !== '.') {
                                 path = `${scopePath}/${filePath}`;
                             }
+                            verifyChangelogModified(path);
                         }
-                        const changelogModified = modifiedFiles.some(file => file.filename === path);
-                        if (!changelogModified) {
-                            throw new Error(`File ${path} not updated for the pull request: ${pullRequest.title}`);
-                        }
+                    }
+                    else {
+                        verifyChangelogModified(filePath);
                     }
                 }
             }
@@ -179,7 +188,9 @@ function validatePrTitle(prTitle, scopes) {
                 .join('\n')}`;
         }
         function isUnknownScope(s) {
-            return scopes && !scopes.includes(s);
+            if (scopes)
+                return !scopes.includes(s);
+            return false;
         }
         if (!result.type) {
             throw new Error(`No release type found in pull request title "${prTitle}". Add a prefix to indicate what kind of release this pull request corresponds to. For reference, see https://www.conventionalcommits.org/\n\n${printAvailableTypes()}`);
@@ -190,7 +201,7 @@ function validatePrTitle(prTitle, scopes) {
         if (!types.includes(result.type)) {
             throw new Error(`Unknown release type "${result.type}" found in pull request title "${prTitle}". \n\n${printAvailableTypes()}`);
         }
-        if (!result.scope) {
+        if (scopes && !result.scope) {
             throw new Error(`No scope found in pull request title "${prTitle}". Use one of the available scopes: ${scopes.join(', ')}.`);
         }
         let isBreakingChange = false;
@@ -198,8 +209,8 @@ function validatePrTitle(prTitle, scopes) {
             isBreakingChange = result.notes.some(note => note.title === 'BREAKING CHANGE');
         }
         const givenScopes = result.scope
-            .split(',')
-            .map(scope => scope.trim());
+            ? result.scope.split(',').map(scope => scope.trim())
+            : undefined;
         const unknownScopes = givenScopes ? givenScopes.filter(isUnknownScope) : [];
         if (scopes && unknownScopes.length > 0) {
             throw new Error(`Unknown ${unknownScopes.length > 1 ? 'scopes' : 'scope'} "${unknownScopes.join(',')}" found in pull request title "${prTitle}". Use one of the available scopes: ${scopes.join(', ')}.`);
