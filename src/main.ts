@@ -1,17 +1,37 @@
-import core from '@actions/core'
+import * as core from '@actions/core'
 import {context, getOctokit} from '@actions/github'
 import {validatePrTitle} from './validatePrTitle'
+import assert from 'assert'
 
-const defaultTypes = ['fix', 'feat', 'refactor']
+/**
+ * Gets the values of an JSON input.
+ *
+ * @param     name     name of the input to get
+ * @param     options  optional. See InputOptions.
+ * @returns   Scopes
+ *
+ */
+function getJsonInput(name: string, options?: core.InputOptions): Scopes {
+  return JSON.parse(core.getInput(name, options))
+}
+
+interface Scopes {
+  [key: string]: string
+}
 
 async function run(): Promise<void> {
   try {
-    const GITHUB_TOKEN = process.env.GITHUB_TOKEN!
+    const GITHUB_TOKEN = process.env.GITHUB_TOKEN
+    assert(GITHUB_TOKEN)
     const octokit = getOctokit(GITHUB_TOKEN)
 
-    const types = core.getMultilineInput('types') ?? defaultTypes
-    const scopes = core.getMultilineInput('scopes', {required: true})
-    const changelogPath = core.getInput('path', {required: true})
+    const types = core.getMultilineInput('types')
+    const scopes = getJsonInput('scopes')
+    const filePath = core.getInput('path')
+
+    core.info(`Types: ${types}`)
+    core.info(`Scopes: ${JSON.stringify(scopes, null, 4)}`)
+    core.info(`FilePath: ${filePath}`)
 
     // Debug log the payload.
     core.debug(`Payload keys: ${Object.keys(context.payload)}`)
@@ -37,54 +57,75 @@ async function run(): Promise<void> {
     })
 
     // Validate if PrTitle is conventional and matches one of [types]
-    const {type: prType, scopes: prScopes} = await validatePrTitle(
-      pullRequest.title,
-      scopes
-    )
+    const {
+      type: prType,
+      scopes: prScopes,
+      breaking: prBreaking
+    } = await validatePrTitle(pullRequest.title, Object.keys(scopes))
 
-    // Define the base and head commits to be extracted from the context.
-    const base = contextPullRequest?.base?.sha
-    const head = contextPullRequest?.head?.sha
+    const breaking = prBreaking || types.includes(prType)
 
-    // Log the base and head commits
-    core.info(`Base commit: ${base}`)
-    core.info(`Head commit: ${head}`)
+    if (breaking) {
+      // Define the base and head commits to be extracted from the context.
+      const base = contextPullRequest?.base?.sha
+      const head = contextPullRequest?.head?.sha
 
-    // Ensure that the base and head properties are set on the payload.
-    if (!base || !head) {
-      throw new Error(
-        `The base and head commits are missing from the payload for this ${context.eventName} event. Please submit an issue on this action's GitHub repo.`
+      // Log the base and head commits
+      core.info(`Base commit: ${base}`)
+      core.info(`Head commit: ${head}`)
+
+      // Ensure that the base and head properties are set on the payload.
+      if (!base || !head) {
+        throw new Error(
+          `The base and head commits are missing from the payload for this ${context.eventName} event. Please submit an issue on this action's GitHub repo.`
+        )
+      }
+
+      // Use GitHub's compare two commits API.
+      // https://developer.github.com/v3/repos/commits/#compare-two-commits
+      const response = await octokit.repos.compareCommits({
+        base,
+        head,
+        owner: context.repo.owner,
+        repo: context.repo.repo
+      })
+
+      // Ensure that the request was successful.
+      if (response.status !== 200) {
+        throw new Error(
+          `The GitHub API for comparing the base and head commits for this ${context.eventName} event returned ${response.status}, expected 200. Please submit an issue on this action's GitHub repo.`
+        )
+      }
+
+      // Ensure that the head commit is ahead of the base commit.
+      if (response.data.status !== 'ahead') {
+        throw new Error(
+          `The head commit for this ${context.eventName} event is not ahead of the base commit. Please submit an issue on this action's GitHub repo.`
+        )
+      }
+
+      // Get the changed files from the response payload.
+      const modifiedFiles = response.data.files?.filter(
+        file => file.status === 'modified'
       )
-    }
-
-    // Use GitHub's compare two commits API.
-    // https://developer.github.com/v3/repos/commits/#compare-two-commits
-    const response = await octokit.repos.compareCommits({
-      base,
-      head,
-      owner: context.repo.owner,
-      repo: context.repo.repo
-    })
-
-    // Ensure that the request was successful.
-    if (response.status !== 200) {
-      throw new Error(
-        `The GitHub API for comparing the base and head commits for this ${context.eventName} event returned ${response.status}, expected 200. Please submit an issue on this action's GitHub repo.`
-      )
-    }
-
-    // Ensure that the head commit is ahead of the base commit.
-    if (response.data.status !== 'ahead') {
-      throw new Error(
-        `The head commit for this ${context.eventName} event is not ahead of the base commit. Please submit an issue on this action's GitHub repo.`
-      )
-    }
-
-    // Get the changed files from the response payload.
-    const files = response.data.files
-    if (files) {
-      for (const file of files) {
-        core.info(`File: ${file}`)
+      if (modifiedFiles) {
+        for (const scope of prScopes) {
+          let path = filePath
+          const scopePath = scopes[scope]
+          if (scopePath) {
+            if (scopePath !== '' && scopePath !== '.') {
+              path = `${scopePath}/${filePath}`
+            }
+          }
+          const changelogModified = modifiedFiles.some(
+            file => file.filename === path
+          )
+          if (!changelogModified) {
+            throw new Error(
+              `File ${path} not updated for the pull request: ${pullRequest.title}`
+            )
+          }
+        }
       }
     }
   } catch (error) {

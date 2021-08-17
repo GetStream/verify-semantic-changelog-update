@@ -9,6 +9,7 @@ export async function validatePrTitle(
   type: string
   scopes: string[]
   subject: string
+  breaking: boolean
 }> {
   const types = Object.keys(conventionalCommitTypes.types)
 
@@ -55,6 +56,13 @@ export async function validatePrTitle(
     )
   }
 
+  let isBreakingChange = false
+  if (result.notes) {
+    isBreakingChange = (result.notes as {title: string; text: string}[]).some(
+      note => note.title === 'BREAKING CHANGE'
+    )
+  }
+
   const givenScopes = (result.scope as string)
     .split(',')
     .map(scope => scope.trim())
@@ -71,5 +79,10 @@ export async function validatePrTitle(
       )}.`
     )
   }
-  return {type: result.type, scopes: givenScopes, subject: result.subject}
+  return {
+    type: result.type,
+    scopes: givenScopes,
+    subject: result.subject,
+    breaking: isBreakingChange
+  }
 }

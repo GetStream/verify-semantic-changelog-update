@@ -1,11 +1,25 @@
-name: 'Your name here'
-description: 'Provide a description here'
-author: 'Your name or organization here'
+name: 'Verify Semantic Changelog Update'
+author: 'GetStream'
+description: >-
+  Ensure your PR contains a changelog entry for all the user facing changes.
+  For more info check Conventional Commits spec (https://www.conventionalcommits.org/).
+branding:
+  icon: 'shield'
+  color: 'green'
 inputs:
-  milliseconds: # change this
-    required: true
-    description: 'input description here'
-    default: 'default value if applicable'
+  types:
+    required: false
+    description: "Provide custom types if you don't want the default ones."
+    default: |
+      fix
+      feat
+  scopes:
+    required: false
+    description: 'Configure which scopes are allowed along with their directory path.'
+  path:
+    required: false
+    description: 'Changelog path.'
+    default: 'changelog.md'
 runs:
   using: 'node12'
   main: 'dist/index.js'
