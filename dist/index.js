@@ -119,10 +119,10 @@ function run() {
                 // Get the changed files from the response payload.
                 const modifiedFiles = (_c = response.data.files) === null || _c === void 0 ? void 0 : _c.filter(file => file.status === 'modified');
                 if (modifiedFiles) {
-                    const verifyChangelogModified = (fileName) => {
+                    const verifyChangelogModified = (fileName, scope = 'repo') => {
                         const changelogModified = modifiedFiles.some(file => file.filename === fileName);
                         if (!changelogModified) {
-                            throw new Error(`File ${fileName} not updated for the pull request: ${pullRequest.title}`);
+                            throw new Error(`File ${fileName} not updated of the pull request: ${pullRequest.title} for the scope ${scope}`);
                         }
                     };
                     if (scopes && prScopes) {
@@ -132,7 +132,7 @@ function run() {
                             if (scopePath !== '' && scopePath !== '.') {
                                 path = `${scopePath}/${filePath}`;
                             }
-                            verifyChangelogModified(path);
+                            verifyChangelogModified(path, scope);
                         }
                     }
                     else {

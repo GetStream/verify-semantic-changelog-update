@@ -116,13 +116,16 @@ async function run(): Promise<void> {
         file => file.status === 'modified'
       )
       if (modifiedFiles) {
-        const verifyChangelogModified = (fileName: string): void => {
+        const verifyChangelogModified = (
+          fileName: string,
+          scope = 'repo'
+        ): void => {
           const changelogModified = modifiedFiles.some(
             file => file.filename === fileName
           )
           if (!changelogModified) {
             throw new Error(
-              `File ${fileName} not updated for the pull request: ${pullRequest.title}`
+              `File ${fileName} not updated of the pull request: ${pullRequest.title} for the scope ${scope}`
             )
           }
         }
@@ -134,7 +137,7 @@ async function run(): Promise<void> {
             if (scopePath !== '' && scopePath !== '.') {
               path = `${scopePath}/${filePath}`
             }
-            verifyChangelogModified(path)
+            verifyChangelogModified(path, scope)
           }
         } else {
           verifyChangelogModified(filePath)
