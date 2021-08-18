@@ -125,7 +125,7 @@ async function run(): Promise<void> {
           )
           if (!changelogModified) {
             throw new Error(
-              `File ${fileName} not updated of the pull request: ${pullRequest.title}\nfor the scope "${scope}"`
+              `File "${fileName}" of the pull request: "${pullRequest.title}" not updated for the scope "${scope}"`
             )
           }
         }
@@ -145,11 +145,9 @@ async function run(): Promise<void> {
       }
     }
     core.info(
-      `Successfully verified pull request: ${pullRequest.title}.\n${
-        scopes
-          ? `Found ${filePath} updated in all these scopes: ${Object.keys(
-              scopes
-            )}`
+      `Success: Successfully verified pull request: "${pullRequest.title}"\n${
+        prScopes
+          ? `Found "${filePath}" updated in all these scopes: ${prScopes}`
           : ``
       }`
     )

@@ -122,7 +122,7 @@ function run() {
                     const verifyChangelogModified = (fileName, scope = 'repo') => {
                         const changelogModified = modifiedFiles.some(file => file.filename === fileName);
                         if (!changelogModified) {
-                            throw new Error(`File ${fileName} not updated of the pull request: ${pullRequest.title}\nfor the scope "${scope}"`);
+                            throw new Error(`File "${fileName}" of the pull request: "${pullRequest.title}" not updated for the scope "${scope}"`);
                         }
                     };
                     if (scopes && prScopes) {
@@ -140,8 +140,8 @@ function run() {
                     }
                 }
             }
-            core.info(`Successfully verified pull request: ${pullRequest.title}.\n${scopes
-                ? `Found ${filePath} updated in all these scopes: ${Object.keys(scopes)}`
+            core.info(`Success: Successfully verified pull request: "${pullRequest.title}"\n${prScopes
+                ? `Found "${filePath}" updated in all these scopes: ${prScopes}`
                 : ``}`);
         }
         catch (error) {
