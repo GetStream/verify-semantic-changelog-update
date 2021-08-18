@@ -1,105 +1,61 @@
-<p align="center">
-  <a href="https://github.com/actions/typescript-action/actions"><img alt="typescript-action status" src="https://github.com/actions/typescript-action/workflows/build-test/badge.svg"></a>
-</p>
+# Verify Semantic Changelog Update
 
-# Create a JavaScript Action using TypeScript
+This is a [Github Action](https://github.com/features/actions) that ensures your PR contains a changelog entry for all the user facing changes.
+For more info check [Conventional Commits spec](https://www.conventionalcommits.org/).
 
-Use this template to bootstrap the creation of a TypeScript action.:rocket:
+This is helpful when you're using [semantic-release](https://github.com/semantic-release/semantic-release) with the Conventional Commits preset.
 
-This template includes compilation support, tests, a validation workflow, publishing, and versioning guidance.  
+## Example config
 
-If you are new, there's also a simpler introduction.  See the [Hello World JavaScript Action](https://github.com/actions/hello-world-javascript-action)
+```yml
+name: 'Verify Semantic Changelog Update'
+on:
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - synchronize
+    branches:
+      - master
 
-## Create an action from this template
-
-Click the `Use this Template` and provide the new repo details for your action
-
-## Code in Main
-
-> First, you'll need to have a reasonably modern version of `node` handy. This won't work with versions older than 9, for instance.
-
-Install the dependencies  
-```bash
-$ npm install
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    steps:
+      # Please look up the latest version from
+      # https://github.com/GetStream/verify-semantic-changelog-update/releases
+      - uses: GetStream/verify-semantic-changelog-update@X.X.X
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-Build the typescript and package it for distribution
-```bash
-$ npm run build && npm run package
+## Configuration
+
+The action works without configuration, however you can provide options for customization.
+
+```yml
+        with:
+          # Configure which types should be verified.
+          # Default: fix, feat, *! (Any breaking change type)
+          types: |
+            fix
+            feat
+          # Configure which scopes are allowed along with their path.
+          # Default: Only checks for the top-level changelog entry
+          scopes: |
+            {
+              "ui": "packages/ui",
+              "core": "packages/core"
+            }
+          # Configure the changelog file path/name.
+          # Default: changelog.md
+          path: |
+            changelog.md
 ```
 
-Run the tests :heavy_check_mark:  
-```bash
-$ npm test
+## Event triggers
 
- PASS  ./index.test.js
-  ✓ throws invalid number (3ms)
-  ✓ wait 500 ms (504ms)
-  ✓ test runs (95ms)
+There are two events that can be used as triggers for this action, each with different characteristics:
 
-...
-```
-
-## Change action.yml
-
-The action.yml contains defines the inputs and output for your action.
-
-Update the action.yml with your name, description, inputs and outputs for your action.
-
-See the [documentation](https://help.github.com/en/articles/metadata-syntax-for-github-actions)
-
-## Change the Code
-
-Most toolkit and CI/CD operations involve async operations so the action is run in an async function.
-
-```javascript
-import * as core from '@actions/core';
-...
-
-async function run() {
-  try { 
-      ...
-  } 
-  catch (error) {
-    core.setFailed(error.message);
-  }
-}
-
-run()
-```
-
-See the [toolkit documentation](https://github.com/actions/toolkit/blob/master/README.md#packages) for the various packages.
-
-## Publish to a distribution branch
-
-Actions are run from GitHub repos so we will checkin the packed dist folder. 
-
-Then run [ncc](https://github.com/zeit/ncc) and push the results:
-```bash
-$ npm run package
-$ git add dist
-$ git commit -a -m "prod dependencies"
-$ git push origin releases/v1
-```
-
-Note: We recommend using the `--license` option for ncc, which will create a license file for all of the production node modules used in your project.
-
-Your action is now published! :rocket: 
-
-See the [versioning documentation](https://github.com/actions/toolkit/blob/master/docs/action-versioning.md)
-
-## Validate
-
-You can now validate the action by referencing `./` in a workflow in your repo (see [test.yml](.github/workflows/test.yml))
-
-```yaml
-uses: ./
-with:
-  milliseconds: 1000
-```
-
-See the [actions tab](https://github.com/actions/typescript-action/actions) for runs of this action! :rocket:
-
-## Usage:
-
-After testing you can [create a v1 tag](https://github.com/actions/toolkit/blob/master/docs/action-versioning.md) to reference the stable and latest V1 action
+1. [`pull_request_target`](https://docs.github.com/en/actions/reference/events-that-trigger-workflows#pull_request_target): This allows the action to be used in a fork-based workflow, where e.g. you want to accept pull requests in a public repository. In this case, the configuration from the main branch of your repository will be used for the check. This means that you need to have this configuration in the main branch for the action to run at all (e.g. it won't run within a PR that adds the action initially). Also if you change the configuration in a PR, the changes will not be reflected for the current PR – only subsequent ones after the changes are in the main branch.
+2. [`pull_request`](https://docs.github.com/en/actions/reference/events-that-trigger-workflows#pull_request): This configuration uses the latest configuration that is available in the current branch. It will only work if the branch is based in the repository itself. If this configuration is used and a pull request from a fork is opened, you'll encounter an error as the Github token environment parameter is not available. This option is viable if all contributors have write access to the repository.
