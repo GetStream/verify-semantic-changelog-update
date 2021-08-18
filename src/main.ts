@@ -125,7 +125,7 @@ async function run(): Promise<void> {
           )
           if (!changelogModified) {
             throw new Error(
-              `File ${fileName} not updated of the pull request: ${pullRequest.title} for the scope ${scope}`
+              `File ${fileName} not updated of the pull request: ${pullRequest.title}\nfor the scope "${scope}"`
             )
           }
         }

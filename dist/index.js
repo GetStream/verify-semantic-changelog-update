@@ -122,7 +122,7 @@ function run() {
                     const verifyChangelogModified = (fileName, scope = 'repo') => {
                         const changelogModified = modifiedFiles.some(file => file.filename === fileName);
                         if (!changelogModified) {
-                            throw new Error(`File ${fileName} not updated of the pull request: ${pullRequest.title} for the scope ${scope}`);
+                            throw new Error(`File ${fileName} not updated of the pull request: ${pullRequest.title}\nfor the scope "${scope}"`);
                         }
                     };
                     if (scopes && prScopes) {
