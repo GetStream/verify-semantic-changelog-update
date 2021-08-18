@@ -124,7 +124,7 @@ function run() {
                 const modifiedFiles = (_c = response.data.files) === null || _c === void 0 ? void 0 : _c.filter(file => file.status === 'modified');
                 if (modifiedFiles) {
                     const verifyChangelogModified = (fileName, scope = 'repo') => {
-                        const changelogModified = modifiedFiles.some(file => file.filename === fileName);
+                        const changelogModified = modifiedFiles.some(file => file.filename.toUpperCase() === fileName.toUpperCase());
                         if (!changelogModified) {
                             throw new Error(`File "${fileName}" of the pull request: "${pullRequest.title}" not updated for the scope "${scope}"`);
                         }

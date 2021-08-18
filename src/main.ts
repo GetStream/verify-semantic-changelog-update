@@ -125,7 +125,7 @@ async function run(): Promise<void> {
           scope = 'repo'
         ): void => {
           const changelogModified = modifiedFiles.some(
-            file => file.filename === fileName
+            file => file.filename.toUpperCase() === fileName.toUpperCase()
           )
           if (!changelogModified) {
             throw new Error(
