@@ -65,10 +65,10 @@ function run() {
             const types = core.getMultilineInput('types');
             const scopes = getJsonInput('scopes');
             const filePath = core.getInput('path');
-            core.info(`Types: ${types}`);
+            core.info(`Action types: ${types}`);
             if (scopes)
-                core.info(`Scopes: ${JSON.stringify(scopes, null, 4)}`);
-            core.info(`FilePath: ${filePath}`);
+                core.info(`Action scopes: ${JSON.stringify(scopes, null, 4)}`);
+            core.info(`Action filePath: ${filePath}`);
             // Debug log the payload.
             core.debug(`Payload keys: ${Object.keys(github_1.context.payload)}`);
             const contextPullRequest = github_1.context.payload.pull_request;
@@ -89,6 +89,10 @@ function run() {
             // Validate if PrTitle is conventional and matches one of [types]
             const { type: prType, scopes: prScopes, breaking: prBreaking } = yield validatePrTitle_1.validatePrTitle(pullRequest.title, scopes ? Object.keys(scopes) : undefined);
             const breaking = prBreaking || types.includes(prType);
+            core.info(`PR type: ${prType}`);
+            if (prScopes)
+                core.info(`PR scopes: ${prScopes}`);
+            core.info(`PR breaking: ${breaking}`);
             if (breaking) {
                 // Define the base and head commits to be extracted from the context.
                 const base = (_a = contextPullRequest === null || contextPullRequest === void 0 ? void 0 : contextPullRequest.base) === null || _a === void 0 ? void 0 : _a.sha;

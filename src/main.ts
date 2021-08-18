@@ -33,9 +33,9 @@ async function run(): Promise<void> {
     const scopes = getJsonInput('scopes')
     const filePath = core.getInput('path')
 
-    core.info(`Types: ${types}`)
-    if (scopes) core.info(`Scopes: ${JSON.stringify(scopes, null, 4)}`)
-    core.info(`FilePath: ${filePath}`)
+    core.info(`Action types: ${types}`)
+    if (scopes) core.info(`Action scopes: ${JSON.stringify(scopes, null, 4)}`)
+    core.info(`Action filePath: ${filePath}`)
 
     // Debug log the payload.
     core.debug(`Payload keys: ${Object.keys(context.payload)}`)
@@ -71,6 +71,10 @@ async function run(): Promise<void> {
     )
 
     const breaking = prBreaking || types.includes(prType)
+
+    core.info(`PR type: ${prType}`)
+    if (prScopes) core.info(`PR scopes: ${prScopes}`)
+    core.info(`PR breaking: ${breaking}`)
 
     if (breaking) {
       // Define the base and head commits to be extracted from the context.
