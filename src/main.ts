@@ -141,6 +141,15 @@ async function run(): Promise<void> {
         }
       }
     }
+    core.info(
+      `Successfully verified pull request: ${pullRequest.title}.\n\n    ${
+        scopes
+          ? `Found ${filePath} updated in all these scopes: ${Object.keys(
+              scopes
+            )}`
+          : ``
+      }`
+    )
   } catch (error) {
     core.setFailed(error.message)
   }
