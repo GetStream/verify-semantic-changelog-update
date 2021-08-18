@@ -131,26 +131,28 @@ async function run(): Promise<void> {
         }
 
         if (scopes && prScopes) {
-          let path = filePath
-          for (const scope of prScopes) {
+          const verifiableScopes = prScopes.filter(scope =>
+            Object.keys(scopes).includes(scope)
+          )
+          for (const scope of verifiableScopes) {
+            let path = filePath
             const scopePath = scopes[scope]
             if (scopePath !== '' && scopePath !== '.') {
               path = `${scopePath}/${filePath}`
             }
             verifyChangelogModified(path, scope)
           }
+          core.info(
+            `Success: Successfully verified pull request: "${pullRequest.title}"\nFound "${filePath}" updated in all these scopes: ${verifiableScopes}`
+          )
         } else {
           verifyChangelogModified(filePath)
+          core.info(
+            `Success: Successfully verified pull request: "${pullRequest.title}"`
+          )
         }
       }
     }
-    core.info(
-      `Success: Successfully verified pull request: "${pullRequest.title}"\n${
-        prScopes
-          ? `Found "${filePath}" updated in all these scopes: ${prScopes}`
-          : ``
-      }`
-    )
   } catch (error) {
     core.setFailed(error.message)
   }
