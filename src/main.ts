@@ -162,6 +162,10 @@ async function run(): Promise<void> {
           )
         }
       }
+    } else {
+      core.info(
+        `Skipped: Skipping verification, Pull request: "${pullRequest.title}" is a not a breaking PR.`
+      )
     }
   } catch (error) {
     core.setFailed(error.message)
