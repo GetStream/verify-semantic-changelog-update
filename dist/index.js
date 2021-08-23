@@ -194,11 +194,6 @@ function validatePrTitle(prTitle, scopes) {
             })
                 .join('\n')}`;
         }
-        function isUnknownScope(s) {
-            if (scopes)
-                return !scopes.includes(s);
-            return false;
-        }
         if (!result.type) {
             throw new Error(`No release type found in pull request title "${prTitle}". Add a prefix to indicate what kind of release this pull request corresponds to. For reference, see https://www.conventionalcommits.org/\n\n${printAvailableTypes()}`);
         }
@@ -211,16 +206,12 @@ function validatePrTitle(prTitle, scopes) {
         if (scopes && !result.scope) {
             throw new Error(`No scope found in pull request title "${prTitle}". Use one of the available scopes: ${scopes.join(', ')}.`);
         }
-        let isBreakingChange = false;
-        if (result.notes) {
-            isBreakingChange = result.notes.some(note => note.title === 'BREAKING CHANGE');
-        }
         const givenScopes = result.scope
             ? result.scope.split(',').map(scope => scope.trim())
             : undefined;
-        const unknownScopes = givenScopes ? givenScopes.filter(isUnknownScope) : [];
-        if (scopes && unknownScopes.length > 0) {
-            throw new Error(`Unknown ${unknownScopes.length > 1 ? 'scopes' : 'scope'} "${unknownScopes.join(',')}" found in pull request title "${prTitle}". Use one of the available scopes: ${scopes.join(', ')}.`);
+        let isBreakingChange = false;
+        if (result.notes) {
+            isBreakingChange = result.notes.some(note => note.title === 'BREAKING CHANGE');
         }
         return {
             type: result.type,
