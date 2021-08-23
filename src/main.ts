@@ -129,7 +129,7 @@ async function run(): Promise<void> {
           )
           if (!changelogModified) {
             throw new Error(
-              `File "${fileName}" of the pull request: "${pullRequest.title}" not updated for the scope "${scope}"`
+              `File "${fileName}" of the pull request: "${pullRequest.title}" not updated for the scope "${scope}".`
             )
           }
         }
@@ -138,26 +138,27 @@ async function run(): Promise<void> {
           const verifiableScopes = prScopes.filter(scope =>
             Object.keys(scopes).includes(scope)
           )
-          for (const scope of verifiableScopes) {
-            let path = filePath
-            const scopePath = scopes[scope]
-            if (scopePath !== '' && scopePath !== '.') {
-              path = `${scopePath}/${filePath}`
+          if (verifiableScopes.length > 0) {
+            for (const scope of verifiableScopes) {
+              let path = filePath
+              const scopePath = scopes[scope]
+              if (scopePath !== '' && scopePath !== '.') {
+                path = `${scopePath}/${filePath}`
+              }
+              verifyChangelogModified(path, scope)
             }
-            verifyChangelogModified(path, scope)
+            core.info(
+              `Success: Successfully verified pull request: "${pullRequest.title}", Found "${filePath}" updated in all these scopes: ${verifiableScopes}.`
+            )
+          } else {
+            core.info(
+              `Skipped: Skipping verification, ${prScopes} is a not a known scope.`
+            )
           }
-          core.info(
-            `Success: Successfully verified pull request: "${pullRequest.title}"
-            \n${
-              verifiableScopes.length > 0
-                ? `Found "${filePath}" updated in all these scopes: ${verifiableScopes}`
-                : ''
-            }`
-          )
         } else {
           verifyChangelogModified(filePath)
           core.info(
-            `Success: Successfully verified pull request: "${pullRequest.title}"`
+            `Success: Successfully verified pull request: "${pullRequest.title}".`
           )
         }
       }
