@@ -147,7 +147,12 @@ async function run(): Promise<void> {
             verifyChangelogModified(path, scope)
           }
           core.info(
-            `Success: Successfully verified pull request: "${pullRequest.title}"\nFound "${filePath}" updated in all these scopes: ${verifiableScopes}`
+            `Success: Successfully verified pull request: "${pullRequest.title}"
+            \n${
+              verifiableScopes.length > 0
+                ? `Found "${filePath}" updated in all these scopes: ${verifiableScopes}`
+                : ''
+            }`
           )
         } else {
           verifyChangelogModified(filePath)
