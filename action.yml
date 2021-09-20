@@ -1,8 +1,6 @@
 name: 'Verify Semantic Changelog Update'
 author: 'GetStream'
-description: >-
-  Ensure your PR contains a changelog entry for all the user facing changes.
-  For more info check Conventional Commits spec (https://www.conventionalcommits.org/).
+description: Ensure your PR contains a changelog entry for all the user facing changes.
 branding:
   icon: 'shield'
   color: 'green'
