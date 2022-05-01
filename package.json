@@ -30,7 +30,7 @@
   },
   "homepage": "https://github.com/GetStream/verify-semantic-changelog-update",
   "dependencies": {
-    "@actions/core": "^1.4.0",
+    "@actions/core": "^1.7.0",
     "@actions/github": "^4.0.0",
     "conventional-changelog-conventionalcommits": "4.5.0",
     "conventional-commit-types": "^3.0.0",
