@@ -6,9 +6,11 @@
 #   GH_TOKEN        token for the GitHub API
 #   REPO            owner/name of the base repository
 #   PR              pull request number
-#   BASE_SHA        base revision of the pull request
+#   BASE_SHA        tip of the base branch
 #   HEAD_BRANCH     head branch, blank for a pull request from a fork
 #   OVERRIDE        `true` skips the check
+#   OVERRIDE_LABEL  name of the label that sets OVERRIDE, for the message
+#   CHANGELOG_NAME  file name of a changelog, matched exactly
 #   UPCOMING        unreleased heading pattern
 #   RELEASE_PREFIX  head branch prefix that may add version headings
 #   RELEASED_FROM   branches whose CHANGELOG versions count as published, one
@@ -30,14 +32,28 @@ trap 'rm -rf "$work_dir"' EXIT
 # Deleted changelogs are skipped: a PR that removes a package is not filing
 # entries in the wrong place, and it keeps every remaining path guaranteed to
 # exist at the head revision.
+export CHANGELOG_NAME=${CHANGELOG_NAME:-CHANGELOG.md}
 changelogs=$(gh api "repos/$REPO/pulls/$PR/files" --paginate \
   --jq '.[] | select(.status != "removed")
             | .filename
-            | select((split("/") | last) == "CHANGELOG.md")')
+            | select((split("/") | last) == env.CHANGELOG_NAME)')
 
 if [ -z "$changelogs" ]; then
-  echo 'This PR touches no CHANGELOG.md.'
+  echo "This PR touches no $CHANGELOG_NAME."
   exit 0
+fi
+
+# `refs/pull/N/head` rather than the head SHA: for a PR from a fork the head
+# commit lives in the fork, but this ref always resolves in the base repo.
+head_ref="refs/pull/$PR/head"
+
+# The base copy is read where the PR branched off, not at the tip of the base
+# branch. A version the base branch released since then is missing from the
+# head, and comparing against the tip would report it as removed.
+if ! merge_base=$(gh api "repos/$REPO/compare/$BASE_SHA...$head_ref" \
+                    --jq .merge_base_commit.sha) || [ -z "$merge_base" ]; then
+  echo "::error::Could not find where pull request #$PR branched off."
+  exit 1
 fi
 
 released_from=()
@@ -73,16 +89,16 @@ fetch() {
   return 1
 }
 
-# `refs/pull/N/head` rather than the head SHA: for a PR from a fork the head
-# commit lives in the fork, but this ref always resolves in the base repo.
 status=0
 while IFS= read -r path; do
   base="$work_dir/base.md"
   head="$work_dir/head.md"
-  args=(--upcoming "${UPCOMING:-Upcoming}" --release-prefix "${RELEASE_PREFIX:-release/}")
+  args=(--upcoming "${UPCOMING:-Upcoming}"
+        --release-prefix "${RELEASE_PREFIX:-release/}"
+        --override-label "${OVERRIDE_LABEL:-changelog-override}")
 
-  if ! fetch "$path" "$BASE_SHA" "$base" true \
-     || ! fetch "$path" "refs/pull/$PR/head" "$head" false; then
+  if ! fetch "$path" "$merge_base" "$base" true \
+     || ! fetch "$path" "$head_ref" "$head" false; then
     status=1
     continue
   fi

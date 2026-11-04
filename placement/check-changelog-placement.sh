@@ -29,6 +29,13 @@
 #                          headings. Default: release/
 #   --released FILE        A CHANGELOG whose version headings count as
 #                          published. Repeatable.
+#   --override-label NAME  The label that skips the check, named in the failure
+#                          message. Default: changelog-override
+#
+# A version heading starts with MAJOR.MINOR: `1.2.0`, `1.2.0-beta.1`, `1.2.0+1`,
+# `1.2.0 (2026-07-22)`. `v1.2.0` and `[1.2.0]` are not versions to this check.
+#
+# `##` lines inside fenced code blocks (``` or ~~~) are not headings.
 #
 # A missing or empty BASE_FILE is treated as a CHANGELOG the PR adds. An empty
 # HEAD_BRANCH never counts as a release branch.
@@ -37,19 +44,21 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: $(basename "$0") [--upcoming ERE] [--release-prefix STR] [--released FILE]... BASE_FILE HEAD_FILE DISPLAY_PATH HEAD_BRANCH" >&2
+  echo "usage: $(basename "$0") [--upcoming ERE] [--release-prefix STR] [--released FILE]... [--override-label NAME] BASE_FILE HEAD_FILE DISPLAY_PATH HEAD_BRANCH" >&2
   exit 2
 }
 
 upcoming='Upcoming'
 release_prefix='release/'
 released_files=()
+override_label='changelog-override'
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --upcoming) [ "$#" -ge 2 ] || usage; upcoming=$2; shift 2 ;;
     --release-prefix) [ "$#" -ge 2 ] || usage; release_prefix=$2; shift 2 ;;
     --released) [ "$#" -ge 2 ] || usage; released_files+=("$2"); shift 2 ;;
+    --override-label) [ "$#" -ge 2 ] || usage; override_label=$2; shift 2 ;;
     --) shift; break ;;
     -*) usage ;;
     *) break ;;
@@ -79,9 +88,10 @@ else
   upcoming_name="a heading matching \`^($upcoming)\$\`"
 fi
 
-# Every `## ` heading in the file, one per line, trimmed.
+# Every `## ` heading outside fenced code, one per line, trimmed.
 headings() {
-  awk '/^## / {
+  awk '/^[ \t]*(```|~~~)/ { fenced = !fenced; next }
+       !fenced && /^## / {
     heading = substr($0, 4)
     sub(/^[ \t]+/, "", heading)
     sub(/[ \t]+$/, "", heading)
@@ -119,7 +129,8 @@ is_released_elsewhere() {
 # they are, so a real edit is still caught.
 section() {
   awk -v want="$2" '
-    /^## / {
+    /^[ \t]*(```|~~~)/ { fenced = !fenced }
+    !fenced && /^## / {
       heading = substr($0, 4)
       sub(/^[ \t]+/, "", heading)
       sub(/[ \t]+$/, "", heading)
@@ -194,7 +205,9 @@ if [ -n "$misnamed" ]; then
   printf '%s' "$misnamed"
   cat <<EOF
 
-Rename it to $upcoming_name, the only unreleased heading this check accepts.
+Unreleased entries go under $upcoming_name, the only unreleased heading this
+check accepts. A shipped version is written as \`## MAJOR.MINOR...\`, such as
+\`## 1.2.0\`, without a \`v\` prefix or brackets.
 EOF
 fi
 
@@ -210,9 +223,9 @@ the release PR, which is cut from a \`${release_prefix}...\` branch.
 EOF
 fi
 
-cat <<'EOF'
+cat <<EOF
 
 If the change is deliberate (fixing a typo in an entry that already shipped,
-for example), add the override label to the pull request.
+for example), add the \`$override_label\` label to the pull request.
 EOF
 exit 1

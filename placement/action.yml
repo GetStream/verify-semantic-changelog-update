@@ -1,8 +1,9 @@
 name: 'Verify Changelog Placement'
 author: 'GetStream'
 description: >-
-  Fail a pull request that writes CHANGELOG entries into a section for a
-  version that is already published, instead of under the unreleased heading.
+  Fail a pull request that changes a published CHANGELOG section, uses a
+  heading that is neither a version nor the unreleased one, or adds a version
+  heading outside a release branch.
 branding:
   icon: 'shield'
   color: 'green'
@@ -31,6 +32,12 @@ inputs:
     description: 'A pull request with this label skips the check.'
     required: false
     default: 'changelog-override'
+  changelog-file-name:
+    description: >-
+      File name of a changelog, in any directory. Matched exactly, case
+      included.
+    required: false
+    default: 'CHANGELOG.md'
 runs:
   using: 'composite'
   steps:
@@ -45,6 +52,8 @@ runs:
         # exemption by naming its branch after a release.
         HEAD_BRANCH: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref || '' }}
         OVERRIDE: ${{ contains(github.event.pull_request.labels.*.name, inputs.override-label) }}
+        OVERRIDE_LABEL: ${{ inputs.override-label }}
+        CHANGELOG_NAME: ${{ inputs.changelog-file-name }}
         UPCOMING: ${{ inputs.upcoming-heading }}
         RELEASE_PREFIX: ${{ inputs.release-branch-prefix }}
         RELEASED_FROM: ${{ inputs.released-from }}

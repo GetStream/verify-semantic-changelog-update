@@ -59,20 +59,28 @@ There are two events that can be used as triggers for this action, each with dif
 
 1. [`pull_request_target`](https://docs.github.com/en/actions/reference/events-that-trigger-workflows#pull_request_target): This allows the action to be used in a fork-based workflow, where e.g. you want to accept pull requests in a public repository. In this case, the configuration from the main branch of your repository will be used for the check. This means that you need to have this configuration in the main branch for the action to run at all (e.g. it won't run within a PR that adds the action initially). Also if you change the configuration in a PR, the changes will not be reflected for the current PR – only subsequent ones after the changes are in the main branch.
 2. [`pull_request`](https://docs.github.com/en/actions/reference/events-that-trigger-workflows#pull_request): This configuration uses the latest configuration that is available in the current branch. For a pull request from a fork, `GITHUB_TOKEN` is read-only, which is enough for this action.
+
 ## Changelog placement
 
 `placement/` is a second action in this repository. Where the action above
 checks that a CHANGELOG was updated, this one checks *where* the new entries
 went. It fails a pull request that:
 
-1. changes or removes a section for a version that is already in the base
-   branch's CHANGELOG,
+1. changes or removes a section for a version that the CHANGELOG already had
+   where the pull request branched off,
 2. has a `##` heading that is neither a version number nor the unreleased
    heading (`Upcoming` by default), or
 3. adds a version heading from a branch that is not a release branch.
 
-Every `CHANGELOG.md` the pull request touches is checked. A CHANGELOG the pull
-request creates may declare its first version.
+Every file named exactly `CHANGELOG.md` (or `changelog-file-name`) that the
+pull request adds or modifies is checked, in any directory. A CHANGELOG the
+pull request deletes is skipped, and one it creates may declare its first
+version.
+
+A version heading starts with `MAJOR.MINOR`: `## 1.2.0`, `## 1.2.0-beta.1`,
+`## 1.2.0+1` and `## 1.2.0 (2026-07-22)` are all versions. `## v1.2.0` and
+`## [1.2.0] - 2026-07-22` are not, and fail as misnamed headings. `##` lines
+inside fenced code blocks are not headings.
 
 ```yml
 on:
@@ -91,6 +99,9 @@ jobs:
       # base repository's token.
       - uses: GetStream/verify-semantic-changelog-update/placement@<sha>
         with:
+          # Needs to read the pull request and its files.
+          # Default: the workflow's GITHUB_TOKEN
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           # Extended regular expression, matched against the whole heading text.
           # Default: Upcoming
           upcoming-heading: 'Upcoming \((major|minor)\)'
@@ -104,10 +115,12 @@ jobs:
           # A pull request with this label skips the check.
           # Default: changelog-override
           override-label: 'changelog-override'
+          # File name of a changelog, matched exactly. Default: CHANGELOG.md
+          changelog-file-name: 'CHANGELOG.md'
 ```
 
 The pull request's CHANGELOG is only fetched and read as data; the check
-itself always runs from this repository. For a pull request from a fork, the
-head branch is treated as blank, so a fork cannot claim the release exemption.
+itself always runs from this repository. A pull request from a fork never
+counts as a release branch, so it cannot add a version heading.
 
 Run the tests with `placement/test/run.sh`.

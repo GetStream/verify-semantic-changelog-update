@@ -1,7 +1,11 @@
 #!/bin/bash
 
-# Tests for check-changelog-placement.sh. Each case writes a base and head
-# CHANGELOG, runs the check, and compares the exit code.
+# Tests for check-changelog-placement.sh and run.sh.
+#
+# Each check-changelog-placement.sh case writes a base and head CHANGELOG, runs
+# the check, and compares the exit code; `expect_output` then asserts on what
+# the last case printed. The run.sh cases put a fake `gh` first on PATH that
+# serves files from a fixture directory.
 
 # Fixture text holds Markdown backticks, which must stay literal.
 # shellcheck disable=SC2016
@@ -14,6 +18,10 @@ trap 'rm -rf "$work"' EXIT
 
 passed=0
 failed=0
+output=''
+
+pass() { passed=$((passed + 1)); echo "ok   - $1"; }
+fail() { failed=$((failed + 1)); echo "FAIL - $1"; printf '       %s\n' "$output"; }
 
 # expect NAME EXIT_CODE [OPTIONS...] -- HEAD_BRANCH
 # Reads $work/base.md and $work/head.md.
@@ -23,19 +31,22 @@ expect() {
   local options=()
   while [ "$1" != '--' ]; do options+=("$1"); shift; done
   shift
-  local branch=$1 output got
+  local branch=$1 got
 
   output=$("$script" ${options[@]+"${options[@]}"} "$work/base.md" "$work/head.md" CHANGELOG.md "$branch" 2>&1)
   got=$?
 
-  if [ "$got" = "$want" ]; then
-    passed=$((passed + 1))
-    echo "ok   - $name"
-  else
-    failed=$((failed + 1))
-    echo "FAIL - $name (exit $got, want $want)"
-    printf '       %s\n' "$output"
-  fi
+  if [ "$got" = "$want" ]; then pass "$name"; else fail "$name (exit $got, want $want)"; fi
+}
+
+# expect_output NAME TEXT: the last case printed TEXT, as a fixed string.
+expect_output() {
+  if grep -qF -- "$2" <<< "$output"; then pass "$1"; else fail "$1 (no \"$2\")"; fi
+}
+
+# expect_no_output NAME TEXT: the last case did not print TEXT.
+expect_no_output() {
+  if grep -qF -- "$2" <<< "$output"; then fail "$1 (printed \"$2\")"; else pass "$1"; fi
 }
 
 write_base() { cat > "$work/base.md"; }
@@ -71,6 +82,11 @@ cat <<'EOF' | write_head
 - Added `InFlightCache.inFlight`.
 EOF
 expect 'entry added under a released version fails' 1 -- feat/x
+expect_output '  names the modified section' '- `## 0.5.1` was modified'
+expect_output '  points at the unreleased heading' 'go under `## Upcoming` at the top'
+expect_output '  names the default override label' 'add the `changelog-override` label'
+expect 'a custom override label is named' 1 --override-label 'skip-changelog' -- feat/x
+expect_output '  names the custom label' 'add the `skip-changelog` label'
 
 released | write_base
 released | sed 's/as well/too/' | write_head
@@ -79,6 +95,7 @@ expect 'typo fix in a released section fails' 1 -- feat/x
 released | write_base
 { echo '## 0.5.1'; echo; echo '- Added `Filter.raw`.'; } | write_head
 expect 'removed released section fails' 1 -- feat/x
+expect_output '  names the removed section' '- `## 0.5.1+1` was removed'
 
 released | write_base
 { released; echo; echo; } | write_head
@@ -93,6 +110,8 @@ expect 'adding Upcoming above the top released version passes' 0 -- feat/x
 released | write_base
 { echo '## Unreleased'; echo; echo '- Added X.'; echo; released; } | write_head
 expect 'Unreleased fails with the default pattern' 1 -- feat/x
+expect_output '  names the misnamed heading' '- `## Unreleased`'
+expect_no_output '  reports no other rule' 'already published'
 
 released | write_base
 { echo '## Upcoming (minor)'; echo; echo '- Added X.'; echo; released; } | write_head
@@ -100,6 +119,7 @@ expect 'Upcoming (minor) fails with the default pattern' 1 -- feat/x
 expect 'Upcoming (minor) passes with the v2 pattern' 0 --upcoming 'Upcoming \((major|minor)\)' -- feat/x
 { echo '## Upcoming (major)x'; echo; echo '- Added X.'; echo; released; } | write_head
 expect 'v2 pattern rejects trailing text' 1 --upcoming 'Upcoming \((major|minor)\)' -- feat/x
+expect_output '  describes a pattern by the pattern' 'a heading matching `^(Upcoming \((major|minor)\))$`'
 
 # --- Rule 3: only a release adds a version heading ----------------------------
 
@@ -107,6 +127,8 @@ expect 'v2 pattern rejects trailing text' 1 --upcoming 'Upcoming \((major|minor)
 { echo '## 0.5.2'; echo; echo '- Added X.'; echo; released; } | write_head
 expect 'release branch renames Upcoming to a version' 0 -- release/v0.5.2
 expect 'the same rename on a feature branch fails' 1 -- feat/x
+expect_output '  names the premature version' '- `## 0.5.2`'
+expect_output '  names the release prefix' 'cut from a `release/...` branch'
 expect 'a fork (blank branch) gets no release exemption' 1 -- ''
 expect 'custom release prefix is honoured' 0 --release-prefix 'rel-' -- rel-0.5.2
 
@@ -130,11 +152,192 @@ released | write_base
 { echo '## 2 quick fixes'; echo; echo '- X.'; echo; released; } | write_head
 expect 'a prose heading starting with a digit is misnamed' 1 -- feat/x
 
+released | write_base
+{ echo '## v0.5.2'; echo; echo '- X.'; echo; released; } | write_head
+expect 'a v-prefixed version is misnamed' 1 -- release/v0.5.2
+expect_output '  says how to write a version' 'without a `v` prefix or brackets'
+
+{ echo '## [0.5.1] - 2026-07-22'; echo; echo '- X.'; } | write_base
+cp "$work/base.md" "$work/head.md"
+expect 'a keep-a-changelog version is misnamed' 1 -- feat/x
+
+# --- Several rules at once ----------------------------------------------------
+
+released | write_base
+{ echo '## Unreleased'; echo; echo '- X.'; echo; echo '## 0.5.2'; echo; echo '- Y.'; echo;
+  echo '## 0.5.1'; echo; echo '- Added `Filter.raw`.'; } | write_head
+expect 'all three rules fail together' 1 -- feat/x
+expect_output '  reports the removed section' '- `## 0.5.1+1` was removed'
+expect_output '  reports the misnamed heading' '- `## Unreleased`'
+expect_output '  reports the premature version' 'adds a version heading on a branch that is not a release'
+expect_output '  annotates the file once' '::error file=CHANGELOG.md::CHANGELOG structure check failed'
+
+# --- Fenced code --------------------------------------------------------------
+
+fenced() {
+  cat <<'EOF'
+## 0.5.1
+
+- Added `Filter.raw`:
+
+```md
+## Usage
+```
+EOF
+}
+fenced | write_base
+{ echo '## Upcoming'; echo; echo '- Added X.'; echo; fenced; } | write_head
+expect 'a ## line inside a code block is not a heading' 0 -- feat/x
+{ echo '## Upcoming'; echo; echo '- Added X.'; echo; fenced; echo '  More.'; } | write_head
+expect 'an edit after a code block is still caught' 1 -- feat/x
+
 # --- Usage --------------------------------------------------------------------
 
-"$script" only-one-arg > /dev/null 2>&1
-if [ $? = 2 ]; then passed=$((passed + 1)); echo 'ok   - wrong arguments exit 2'
-else failed=$((failed + 1)); echo 'FAIL - wrong arguments exit 2'; fi
+output=$("$script" only-one-arg 2>&1)
+if [ $? = 2 ]; then pass 'wrong arguments exit 2'; else fail 'wrong arguments exit 2'; fi
+
+# --- run.sh -------------------------------------------------------------------
+#
+# The fake gh answers three calls from $MOCK:
+#   pulls/N/files       $MOCK/files.json, filtered by the real jq
+#   compare/A...B       $MOCK/merge_base, or a failure when it is missing
+#   contents/PATH?ref=R $MOCK/contents/R/PATH, a 404 when it is missing, or a
+#                       500 when $MOCK/broken/R exists
+
+run_sh="$(cd "$(dirname "$0")/.." && pwd)/run.sh"
+mkdir -p "$work/bin"
+cat > "$work/bin/gh" <<'EOF'
+#!/bin/bash
+[ "$1" = api ] || exit 64
+endpoint=$2
+shift 2
+filter=''
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --jq) filter=$2; shift 2 ;;
+    -H) shift 2 ;;
+    *) shift ;;
+  esac
+done
+case "$endpoint" in
+  */pulls/*/files) jq -r "$filter" "$MOCK/files.json" ;;
+  */compare/*)
+    [ -f "$MOCK/merge_base" ] || { echo 'gh: Not Found (HTTP 404)' >&2; exit 1; }
+    cat "$MOCK/merge_base" ;;
+  */contents/*)
+    path=${endpoint#*/contents/}
+    ref=${path#*\?ref=}
+    path=${path%%\?ref=*}
+    if [ -e "$MOCK/broken/$ref" ]; then
+      echo '{"message":"Server Error"}'; echo 'gh: Server Error (HTTP 500)' >&2; exit 1
+    fi
+    file="$MOCK/contents/$ref/$path"
+    if [ ! -f "$file" ]; then
+      echo '{"message":"Not Found"}'; echo 'gh: Not Found (HTTP 404)' >&2; exit 1
+    fi
+    cat "$file" ;;
+  *) exit 64 ;;
+esac
+EOF
+chmod +x "$work/bin/gh"
+
+export MOCK="$work/mock"
+
+# mock_reset: an empty fixture with `main` as the base tip and `fork` as the
+# merge base.
+mock_reset() {
+  rm -rf "$MOCK"
+  mkdir -p "$MOCK/contents/main" "$MOCK/contents/fork" "$MOCK/contents/refs/pull/7/head" "$MOCK/broken"
+  echo fork > "$MOCK/merge_base"
+  echo '[]' > "$MOCK/files.json"
+}
+
+# mock_file REF PATH: stdin becomes PATH at REF.
+mock_file() { mkdir -p "$(dirname "$MOCK/contents/$1/$2")"; cat > "$MOCK/contents/$1/$2"; }
+
+# mock_files STATUS:PATH...: the files the pull request touches.
+mock_files() {
+  local entry sep=''
+  { printf '['
+    for entry in "$@"; do
+      printf '%s{"status":"%s","filename":"%s"}' "$sep" "${entry%%:*}" "${entry#*:}"
+      sep=','
+    done
+    printf ']'; } > "$MOCK/files.json"
+}
+
+# expect_run NAME EXIT_CODE [VAR=VALUE...]
+expect_run() {
+  local name=$1 want=$2 got
+  shift 2
+  output=$(env PATH="$work/bin:$PATH" GH_TOKEN=t REPO=o/r PR=7 BASE_SHA=main \
+             HEAD_BRANCH=feat/x "$@" "$run_sh" 2>&1)
+  got=$?
+  if [ "$got" = "$want" ]; then pass "run.sh: $name"; else fail "run.sh: $name (exit $got, want $want)"; fi
+}
+
+mock_reset
+mock_files modified:packages/a/CHANGELOG.md
+released | mock_file fork packages/a/CHANGELOG.md
+{ echo '## 0.6.0'; echo; echo '- Shipped.'; echo; released; } | mock_file main packages/a/CHANGELOG.md
+{ echo '## Upcoming'; echo; echo '- Added X.'; echo; released; } | mock_file refs/pull/7/head packages/a/CHANGELOG.md
+expect_run 'a branch behind its base compares against the merge base' 0
+echo main > "$MOCK/merge_base"
+expect_run 'the same branch against the base tip would fail' 1
+expect_output '  as a removed version' '- `## 0.6.0` was removed'
+rm "$MOCK/merge_base"
+expect_run 'a failing compare fails the run' 1
+expect_output '  saying why' 'Could not find where pull request #7 branched off'
+
+mock_reset
+mock_files modified:CHANGELOG.md
+released | mock_file fork CHANGELOG.md
+released | sed 's/as well/too/' | mock_file refs/pull/7/head CHANGELOG.md
+expect_run 'a violation fails the run' 1
+expect_run 'the override label skips the check' 0 OVERRIDE=true
+expect_output '  and says so' 'The override label is set'
+expect_run 'the label name reaches the message' 1 OVERRIDE_LABEL=skip-changelog
+expect_output '  as given' 'add the `skip-changelog` label'
+
+mock_reset
+mock_files removed:packages/gone/CHANGELOG.md modified:packages/a/README.md
+expect_run 'a removed CHANGELOG is skipped' 0
+expect_output '  leaving nothing to check' 'This PR touches no CHANGELOG.md.'
+
+mock_reset
+mock_files modified:changelog.md
+{ echo '## 0.0.1'; } | mock_file fork changelog.md
+{ echo '## 0.0.1'; echo '- Edited.'; } | mock_file refs/pull/7/head changelog.md
+expect_run 'a lowercase changelog is not matched by default' 0
+expect_run 'changelog-file-name matches it' 1 CHANGELOG_NAME=changelog.md
+
+mock_reset
+mock_files added:packages/new/CHANGELOG.md
+{ echo '## 0.0.1'; echo; echo '- Initial release.'; } | mock_file refs/pull/7/head packages/new/CHANGELOG.md
+expect_run 'a 404 on the base is a new CHANGELOG' 0
+
+mock_reset
+mock_files modified:CHANGELOG.md
+released | mock_file fork CHANGELOG.md
+expect_run 'a 404 on the head fails the run' 1
+expect_output '  naming the file' 'Could not fetch CHANGELOG.md at refs/pull/7/head'
+
+mock_reset
+mock_files modified:CHANGELOG.md
+touch "$MOCK/broken/fork"
+{ echo '## Upcoming'; echo; released; } | mock_file refs/pull/7/head CHANGELOG.md
+expect_run 'a 500 on the base fails the run' 1
+
+mock_reset
+mock_files modified:CHANGELOG.md
+{ echo '## Upcoming (major)'; echo; released; } | mock_file fork CHANGELOG.md
+{ echo '## Upcoming (major)'; echo; echo '## 0.5.2'; echo; echo '- Y.'; echo; released; } \
+  | mock_file refs/pull/7/head CHANGELOG.md
+{ echo '## 0.5.2'; echo; echo '- Y.'; echo; released; } | mock_file main CHANGELOG.md
+v2=(UPCOMING='Upcoming \((major|minor)\)')
+expect_run 'a version from released-from passes' 0 "${v2[@]}" RELEASED_FROM=main
+expect_run 'a missing released-from branch is no exemption' 1 "${v2[@]}" RELEASED_FROM=gone
+expect_run 'released-from ignores blank lines and spaces' 0 "${v2[@]}" RELEASED_FROM=$'\n  main  \n'
 
 echo
 echo "$passed passed, $failed failed"
