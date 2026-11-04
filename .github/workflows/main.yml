@@ -23,11 +23,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run all
-      # `dist/` is what the action runs, so it has to match the source.
-      - name: Check dist is up to date
+      # `npm run all` formats the source and rebuilds `dist/`, which is what the
+      # action runs. Either one changing means the commit was not up to date.
+      - name: Check nothing changed
         run: |
-          if [ -n "$(git status --porcelain dist)" ]; then
-            git status --porcelain dist
-            echo '::error::dist/ is out of date. Run `npm run all` and commit the result.'
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --porcelain
+            echo '::error::Formatting or dist/ is out of date. Run `npm run all` and commit the result.'
             exit 1
           fi
