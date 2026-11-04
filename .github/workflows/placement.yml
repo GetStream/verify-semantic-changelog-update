@@ -1,0 +1,27 @@
+name: 'placement'
+on:
+  pull_request:
+    paths:
+      - 'placement/**'
+      - '.github/workflows/placement.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'placement/**'
+      - '.github/workflows/placement.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Shellcheck
+        run: shellcheck placement/*.sh placement/test/*.sh
+      - name: Tests
+        run: placement/test/run.sh

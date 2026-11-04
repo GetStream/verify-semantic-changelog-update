@@ -1,0 +1,56 @@
+name: 'Verify Changelog Placement'
+author: 'GetStream'
+description: >-
+  Fail a pull request that writes CHANGELOG entries into a section for a
+  version that is already published, instead of under the unreleased heading.
+branding:
+  icon: 'shield'
+  color: 'green'
+inputs:
+  github-token:
+    description: 'Token that can read the pull request and its files.'
+    required: false
+    default: ${{ github.token }}
+  upcoming-heading:
+    description: >-
+      Extended regular expression for the unreleased heading, matched against
+      the whole text after `## `.
+    required: false
+    default: 'Upcoming'
+  release-branch-prefix:
+    description: 'Head branches with this prefix may add version headings.'
+    required: false
+    default: 'release/'
+  released-from:
+    description: >-
+      Branches, one per line, whose CHANGELOG version headings count as
+      published. Lets a merge of a released branch into a long-lived one pass.
+    required: false
+    default: ''
+  override-label:
+    description: 'A pull request with this label skips the check.'
+    required: false
+    default: 'changelog-override'
+runs:
+  using: 'composite'
+  steps:
+    - name: Verify changelog entries land under the unreleased heading
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ github.repository }}
+        PR: ${{ github.event.pull_request.number }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        # Blank for a fork PR, so a fork cannot claim the release-branch
+        # exemption by naming its branch after a release.
+        HEAD_BRANCH: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref || '' }}
+        OVERRIDE: ${{ contains(github.event.pull_request.labels.*.name, inputs.override-label) }}
+        UPCOMING: ${{ inputs.upcoming-heading }}
+        RELEASE_PREFIX: ${{ inputs.release-branch-prefix }}
+        RELEASED_FROM: ${{ inputs.released-from }}
+      run: |
+        if [ -z "$PR" ]; then
+          echo '::error::Verify Changelog Placement only runs on pull_request or pull_request_target events.'
+          exit 1
+        fi
+        "$GITHUB_ACTION_PATH/run.sh"

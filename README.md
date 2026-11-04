@@ -59,3 +59,55 @@ There are two events that can be used as triggers for this action, each with dif
 
 1. [`pull_request_target`](https://docs.github.com/en/actions/reference/events-that-trigger-workflows#pull_request_target): This allows the action to be used in a fork-based workflow, where e.g. you want to accept pull requests in a public repository. In this case, the configuration from the main branch of your repository will be used for the check. This means that you need to have this configuration in the main branch for the action to run at all (e.g. it won't run within a PR that adds the action initially). Also if you change the configuration in a PR, the changes will not be reflected for the current PR – only subsequent ones after the changes are in the main branch.
 2. [`pull_request`](https://docs.github.com/en/actions/reference/events-that-trigger-workflows#pull_request): This configuration uses the latest configuration that is available in the current branch. For a pull request from a fork, `GITHUB_TOKEN` is read-only, which is enough for this action.
+## Changelog placement
+
+`placement/` is a second action in this repository. Where the action above
+checks that a CHANGELOG was updated, this one checks *where* the new entries
+went. It fails a pull request that:
+
+1. changes or removes a section for a version that is already in the base
+   branch's CHANGELOG,
+2. has a `##` heading that is neither a version number nor the unreleased
+   heading (`Upcoming` by default), or
+3. adds a version heading from a branch that is not a release branch.
+
+Every `CHANGELOG.md` the pull request touches is checked. A CHANGELOG the pull
+request creates may declare its first version.
+
+```yml
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  changelog_placement:
+    runs-on: ubuntu-latest
+    steps:
+      # Pin to a commit SHA: on pull_request_target the action runs with the
+      # base repository's token.
+      - uses: GetStream/verify-semantic-changelog-update/placement@<sha>
+        with:
+          # Extended regular expression, matched against the whole heading text.
+          # Default: Upcoming
+          upcoming-heading: 'Upcoming \((major|minor)\)'
+          # Head branches that may add version headings. Default: release/
+          release-branch-prefix: 'release/'
+          # Branches, one per line, whose CHANGELOG versions count as published,
+          # so merging a released branch into a long-lived one passes.
+          # Default: none
+          released-from: |
+            main
+          # A pull request with this label skips the check.
+          # Default: changelog-override
+          override-label: 'changelog-override'
+```
+
+The pull request's CHANGELOG is only fetched and read as data; the check
+itself always runs from this repository. For a pull request from a fork, the
+head branch is treated as blank, so a fork cannot claim the release exemption.
+
+Run the tests with `placement/test/run.sh`.
