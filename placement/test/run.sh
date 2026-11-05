@@ -83,6 +83,7 @@ cat <<'EOF' | write_head
 EOF
 expect 'entry added under a released version fails' 1 -- feat/x
 expect_output '  names the modified section' '- `## 0.5.1` was modified'
+expect_output '  annotates the heading line' '::error file=CHANGELOG.md,line=5::`## 0.5.1` was published and is modified. New entries go under `## Upcoming`.'
 expect_output '  points at the unreleased heading' 'go under `## Upcoming` at the top'
 expect_output '  names the default override label' 'add the `changelog-override` label'
 expect 'a custom override label is named' 1 --override-label 'skip-changelog' -- feat/x
@@ -96,6 +97,7 @@ released | write_base
 { echo '## 0.5.1'; echo; echo '- Added `Filter.raw`.'; } | write_head
 expect 'removed released section fails' 1 -- feat/x
 expect_output '  names the removed section' '- `## 0.5.1+1` was removed'
+expect_output '  annotates the file, having no line' '::error file=CHANGELOG.md::`## 0.5.1+1` was published and is removed.'
 
 released | write_base
 { released; echo; echo; } | write_head
@@ -111,7 +113,9 @@ released | write_base
 { echo '## Unreleased'; echo; echo '- Added X.'; echo; released; } | write_head
 expect 'Unreleased fails with the default pattern' 1 -- feat/x
 expect_output '  names the misnamed heading' '- `## Unreleased`'
+expect_output '  annotates its line' '::error file=CHANGELOG.md,line=1::`## Unreleased` is neither a version nor `## Upcoming`.'
 expect_no_output '  reports no other rule' 'already published'
+expect_no_output '  offers no override' 'changelog-override'
 
 released | write_base
 { echo '## Upcoming (minor)'; echo; echo '- Added X.'; echo; released; } | write_head
@@ -128,8 +132,11 @@ expect_output '  describes a pattern by the pattern' 'a heading matching `^(Upco
 expect 'release branch renames Upcoming to a version' 0 -- release/v0.5.2
 expect 'the same rename on a feature branch fails' 1 -- feat/x
 expect_output '  names the premature version' '- `## 0.5.2`'
+expect_output '  names the branch' 'adds a version heading on `feat/x`, which is not a release branch:'
 expect_output '  names the release prefix' 'cut from a `release/...` branch'
+expect_no_output '  offers no override' 'changelog-override'
 expect 'a fork (blank branch) gets no release exemption' 1 -- ''
+expect_output '  and says forks never count' 'from a fork, and pull requests from forks never count as release branches'
 expect 'custom release prefix is honoured' 0 --release-prefix 'rel-' -- rel-0.5.2
 
 : | write_base
@@ -169,8 +176,15 @@ released | write_base
 expect 'all three rules fail together' 1 -- feat/x
 expect_output '  reports the removed section' '- `## 0.5.1+1` was removed'
 expect_output '  reports the misnamed heading' '- `## Unreleased`'
-expect_output '  reports the premature version' 'adds a version heading on a branch that is not a release'
-expect_output '  annotates the file once' '::error file=CHANGELOG.md::CHANGELOG structure check failed'
+expect_output '  reports the premature version' '- `## 0.5.2`'
+expect_output '  offers the override for the published section' 'add the `changelog-override` label'
+if [ "$(grep -c '^::error ' <<< "$output")" = 3 ]; then pass '  one annotation per finding'
+else fail '  one annotation per finding'; fi
+
+released | write_base
+{ echo '## 100% done'; echo; echo '- X.'; echo; released; } | write_head
+expect 'a heading with % is reported' 1 -- feat/x
+expect_output '  escaped in the annotation' '`## 100%25 done` is neither'
 
 # --- Fenced code --------------------------------------------------------------
 
@@ -199,7 +213,8 @@ if [ $? = 2 ]; then pass 'wrong arguments exit 2'; else fail 'wrong arguments ex
 # --- run.sh -------------------------------------------------------------------
 #
 # The fake gh answers three calls from $MOCK:
-#   pulls/N/files       $MOCK/files.json, filtered by the real jq
+#   pulls/N/files       $MOCK/files.json, filtered by the real jq, or a 403
+#                       when $MOCK/forbidden/files exists
 #   compare/A...B       $MOCK/merge_base, or a failure when it is missing
 #   contents/PATH?ref=R $MOCK/contents/R/PATH, a 404 when it is missing, or a
 #                       500 when $MOCK/broken/R exists
@@ -220,7 +235,9 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 case "$endpoint" in
-  */pulls/*/files) jq -r "$filter" "$MOCK/files.json" ;;
+  */pulls/*/files)
+    [ -e "$MOCK/forbidden/files" ] && { echo 'gh: Resource not accessible by integration (HTTP 403)' >&2; exit 1; }
+    jq -r "$filter" "$MOCK/files.json" ;;
   */compare/*)
     [ -f "$MOCK/merge_base" ] || { echo 'gh: Not Found (HTTP 404)' >&2; exit 1; }
     cat "$MOCK/merge_base" ;;
@@ -247,7 +264,7 @@ export MOCK="$work/mock"
 # merge base.
 mock_reset() {
   rm -rf "$MOCK"
-  mkdir -p "$MOCK/contents/main" "$MOCK/contents/fork" "$MOCK/contents/refs/pull/7/head" "$MOCK/broken"
+  mkdir -p "$MOCK/contents/main" "$MOCK/contents/fork" "$MOCK/contents/refs/pull/7/head" "$MOCK/broken" "$MOCK/forbidden"
   echo fork > "$MOCK/merge_base"
   echo '[]' > "$MOCK/files.json"
 }
@@ -320,13 +337,20 @@ mock_reset
 mock_files modified:CHANGELOG.md
 released | mock_file fork CHANGELOG.md
 expect_run 'a 404 on the head fails the run' 1
-expect_output '  naming the file' 'Could not fetch CHANGELOG.md at refs/pull/7/head'
+expect_output '  annotating the file with the likely cause' '::error file=CHANGELOG.md::Could not fetch CHANGELOG.md at refs/pull/7/head. The workflow needs `permissions: contents: read`.'
 
 mock_reset
 mock_files modified:CHANGELOG.md
 touch "$MOCK/broken/fork"
 { echo '## Upcoming'; echo; released; } | mock_file refs/pull/7/head CHANGELOG.md
 expect_run 'a 500 on the base fails the run' 1
+expect_no_output '  without blaming permissions' 'The workflow needs'
+
+mock_reset
+touch "$MOCK/forbidden/files"
+expect_run 'a 403 listing the files fails the run' 1
+expect_output '  naming the permission' '::error::Could not list the files of pull request #7. The workflow needs `permissions: pull-requests: read`.'
+expect_output '  with gh'"'"'s own error' 'Resource not accessible by integration (HTTP 403)'
 
 mock_reset
 mock_files modified:CHANGELOG.md

@@ -116,6 +116,29 @@ has_heading() {
   headings "$1" | grep -qxF -- "$2"
 }
 
+# The line number of the first `## ` heading in $1 whose text is $2.
+heading_line() {
+  awk -v want="$2" '
+    /^[ \t]*(```|~~~)/ { fenced = !fenced; next }
+    !fenced && /^## / {
+      heading = substr($0, 4)
+      sub(/^[ \t]+/, "", heading)
+      sub(/[ \t]+$/, "", heading)
+      if (heading == want) { print NR; exit }
+    }' "$1"
+}
+
+# Emits one error annotation on the CHANGELOG: $1 is the line, blank for the
+# file as a whole, and $2 the message. GitHub needs `%`, CR and LF escaped.
+annotations=''
+annotate() {
+  local message=$2
+  message=${message//'%'/%25}
+  message=${message//$'\r'/%0D}
+  message=${message//$'\n'/%0A}
+  annotations+="::error file=$display_path${1:+,line=$1}::$message"$'\n'
+}
+
 is_released_elsewhere() {
   local file
   for file in ${released_files[@]+"${released_files[@]}"}; do
@@ -150,6 +173,13 @@ is_release_branch() {
   [ -n "$head_branch" ] && [ -n "$release_prefix" ] && [[ $head_branch == "$release_prefix"* ]]
 }
 
+# How the head branch is named in messages about rule 3.
+if [ -z "$head_branch" ]; then
+  branch_phrase='from a fork, and pull requests from forks never count as release branches'
+else
+  branch_phrase="on \`$head_branch\`, which is not a release branch"
+fi
+
 released=''
 misnamed=''
 premature=''
@@ -159,8 +189,11 @@ while IFS= read -r heading; do
   if [ -n "$heading" ] && is_version "$heading"; then
     if ! has_heading "$head_file" "$heading"; then
       released+="  - \`## $heading\` was removed"$'\n'
+      annotate '' "\`## $heading\` was published and is removed. Restore it; new entries go under $upcoming_name."
     elif [ "$(section "$base_file" "$heading")" != "$(section "$head_file" "$heading")" ]; then
       released+="  - \`## $heading\` was modified"$'\n'
+      annotate "$(heading_line "$head_file" "$heading")" \
+        "\`## $heading\` was published and is modified. New entries go under $upcoming_name."
     fi
   fi
 done < <(headings "$base_file")
@@ -170,12 +203,18 @@ while IFS= read -r heading; do
   [ -n "$heading" ] || continue
 
   if ! is_version "$heading"; then
-    is_upcoming "$heading" || misnamed+="  - \`## $heading\`"$'\n'
+    if ! is_upcoming "$heading"; then
+      misnamed+="  - \`## $heading\`"$'\n'
+      annotate "$(heading_line "$head_file" "$heading")" \
+        "\`## $heading\` is neither a version nor $upcoming_name. Rename it to $upcoming_name if it holds unreleased entries; a version heading starts with MAJOR.MINOR, such as \`## 1.2.0\`."
+    fi
   elif [ "$is_new_changelog" = false ] \
        && ! is_release_branch \
        && ! has_heading "$base_file" "$heading" \
        && ! is_released_elsewhere "$heading"; then
     premature+="  - \`## $heading\`"$'\n'
+    annotate "$(heading_line "$head_file" "$heading")" \
+      "\`## $heading\` is a new version heading $branch_phrase. Put the entries under $upcoming_name instead."
   fi
 done < <(headings "$head_file")
 
@@ -184,7 +223,7 @@ if [ -z "$released" ] && [ -z "$misnamed" ] && [ -z "$premature" ]; then
   exit 0
 fi
 
-echo "::error file=$display_path::CHANGELOG structure check failed"
+printf '%s' "$annotations"
 echo
 
 if [ -n "$released" ]; then
@@ -213,7 +252,7 @@ fi
 
 if [ -n "$premature" ]; then
   { [ -n "$released" ] || [ -n "$misnamed" ]; } && echo
-  echo "$display_path adds a version heading on a branch that is not a release:"
+  echo "$display_path adds a version heading $branch_phrase:"
   echo
   printf '%s' "$premature"
   cat <<EOF
@@ -223,9 +262,12 @@ the release PR, which is cut from a \`${release_prefix}...\` branch.
 EOF
 fi
 
-cat <<EOF
+if [ -n "$released" ]; then
+  cat <<EOF
 
-If the change is deliberate (fixing a typo in an entry that already shipped,
-for example), add the \`$override_label\` label to the pull request.
+If changing a published section is deliberate (fixing a typo in an entry that
+already shipped, for example), add the \`$override_label\` label to the pull
+request.
 EOF
+fi
 exit 1

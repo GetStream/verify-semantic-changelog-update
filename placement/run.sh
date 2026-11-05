@@ -28,15 +28,31 @@ fi
 script_dir=$(cd "$(dirname "$0")" && pwd)
 work_dir=$(mktemp -d)
 trap 'rm -rf "$work_dir"' EXIT
+work_err="$work_dir/err"
+
+# Reports a failed API call whose stderr is in $work_err. $1 is the annotation
+# prefix, $2 what failed and $3 the permission the call needs, named when the
+# answer is a 403 or 404. gh's own error follows in the log.
+api_error() {
+  local message=$2
+  if grep -qE '\(HTTP (403|404)\)' "$work_err"; then
+    message+=" The workflow needs \`permissions: $3\`."
+  fi
+  echo "$1$message"
+  cat "$work_err" >&2
+}
 
 # Deleted changelogs are skipped: a PR that removes a package is not filing
 # entries in the wrong place, and it keeps every remaining path guaranteed to
 # exist at the head revision.
 export CHANGELOG_NAME=${CHANGELOG_NAME:-CHANGELOG.md}
-changelogs=$(gh api "repos/$REPO/pulls/$PR/files" --paginate \
-  --jq '.[] | select(.status != "removed")
-            | .filename
-            | select((split("/") | last) == env.CHANGELOG_NAME)')
+if ! changelogs=$(gh api "repos/$REPO/pulls/$PR/files" --paginate \
+       --jq '.[] | select(.status != "removed")
+                 | .filename
+                 | select((split("/") | last) == env.CHANGELOG_NAME)' 2>"$work_err"); then
+  api_error '::error::' "Could not list the files of pull request #$PR." 'pull-requests: read'
+  exit 1
+fi
 
 if [ -z "$changelogs" ]; then
   echo "This PR touches no $CHANGELOG_NAME."
@@ -51,8 +67,8 @@ head_ref="refs/pull/$PR/head"
 # branch. A version the base branch released since then is missing from the
 # head, and comparing against the tip would report it as removed.
 if ! merge_base=$(gh api "repos/$REPO/compare/$BASE_SHA...$head_ref" \
-                    --jq .merge_base_commit.sha) || [ -z "$merge_base" ]; then
-  echo "::error::Could not find where pull request #$PR branched off."
+                    --jq .merge_base_commit.sha 2>"$work_err") || [ -z "$merge_base" ]; then
+  api_error '::error::' "Could not find where pull request #$PR branched off." 'contents: read'
   exit 1
 fi
 
@@ -70,22 +86,20 @@ done <<< "${RELEASED_FROM:-}"
 # file the PR demonstrably touches) must fail the job: an empty file looks like
 # a brand-new changelog and would wave a real violation through.
 fetch() {
-  local path=$1 rev=$2 dest=$3 allow_missing=$4 err
-  err="$work_dir/err"
+  local path=$1 rev=$2 dest=$3 allow_missing=$4
 
   if gh api "repos/$REPO/contents/$path?ref=$rev" \
-       -H 'Accept: application/vnd.github.raw' > "$dest" 2>"$err"; then
+       -H 'Accept: application/vnd.github.raw' > "$dest" 2>"$work_err"; then
     return 0
   fi
 
   # gh writes the error body to stdout, so $dest holds JSON, not content.
-  if [ "$allow_missing" = 'true' ] && grep -q '(HTTP 404)' "$err"; then
+  if [ "$allow_missing" = 'true' ] && grep -q '(HTTP 404)' "$work_err"; then
     : > "$dest"
     return 0
   fi
 
-  echo "::error::Could not fetch $path at $rev"
-  cat "$err" >&2
+  api_error "::error file=$path::" "Could not fetch $path at $rev." 'contents: read'
   return 1
 }
 

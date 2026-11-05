@@ -57,9 +57,10 @@ runs:
         UPCOMING: ${{ inputs.upcoming-heading }}
         RELEASE_PREFIX: ${{ inputs.release-branch-prefix }}
         RELEASED_FROM: ${{ inputs.released-from }}
+        EVENT: ${{ github.event_name }}
       run: |
         if [ -z "$PR" ]; then
-          echo '::error::Verify Changelog Placement only runs on pull_request or pull_request_target events.'
+          echo "::error::Verify Changelog Placement only runs on pull_request or pull_request_target events, not $EVENT.
           exit 1
         fi
         "$GITHUB_ACTION_PATH/run.sh"
