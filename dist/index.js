@@ -32329,7 +32329,7 @@ function error(message, properties = {}) {
  * @param properties optional properties to add to the annotation.
  */
 function warning(message, properties = {}) {
-    issueCommand('warning', toCommandProperties(properties), message instanceof Error ? message.toString() : message);
+    command_issueCommand('warning', utils_toCommandProperties(properties), message instanceof Error ? message.toString() : message);
 }
 /**
  * Adds a notice issue
@@ -38886,13 +38886,13 @@ async function validatePrTitle(prTitle, scopes) {
         throw new Error(`No release type found in pull request title "${prTitle}". Add a prefix to indicate what kind of release this pull request corresponds to. For reference, see https://www.conventionalcommits.org/\n\n${printAvailableTypes()}`);
     }
     if (!result.subject) {
-        throw new Error(`No subject found in pull request title "${prTitle}".`);
+        throw new Error(`No subject found in pull request title "${prTitle}". Add a description after the colon, e.g. "fix(ui): stop a crash on scroll".`);
     }
     if (!types.includes(result.type)) {
-        throw new Error(`Unknown release type "${result.type}" found in pull request title "${prTitle}". \n\n${printAvailableTypes()}`);
+        throw new Error(`Unknown release type "${result.type}" found in pull request title "${prTitle}".\n\n${printAvailableTypes()}`);
     }
     if (scopes && !result.scope) {
-        throw new Error(`No scope found in pull request title "${prTitle}". Use one of the available scopes: ${scopes.join(', ')}.`);
+        throw new Error(`No scope found in pull request title "${prTitle}". Put a scope in parentheses after the type, e.g. "${result.type}(${scopes[0] ?? 'scope'}): ${result.subject}". Available scopes: ${scopes.join(', ')}.`);
     }
     const givenScopes = result.scope
         ? result.scope.split(',').map(scope => scope.trim())
@@ -38906,33 +38906,60 @@ async function validatePrTitle(prTitle, scopes) {
     };
 }
 
-// EXTERNAL MODULE: external "node:assert"
-var external_node_assert_ = __nccwpck_require__(4589);
-;// CONCATENATED MODULE: ./lib/main.js
-
+;// CONCATENATED MODULE: ./lib/run.js
 
 
 
 /**
- * Gets the values of an JSON input.
- *
- * @param     name     name of the input to get
- * @param     options  optional. See InputOptions.
- * @returns   Scopes
- *
+ * Reads the `scopes` input: a JSON object from scope name to directory.
  */
-function getJsonInput(name, options) {
-    const input = getInput(name, options);
-    if (input)
+function getScopesInput() {
+    const input = getInput('scopes');
+    if (!input)
+        return undefined;
+    try {
         return JSON.parse(input);
+    }
+    catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        throw new Error(`The scopes input is not valid JSON: ${reason}`);
+    }
+}
+/**
+ * Strips a leading `./` and trailing slashes, so `./packages/ui/` and
+ * `packages/ui` name the same directory. `.` becomes the empty string.
+ */
+function normalizeDir(dir) {
+    return dir
+        .replace(/^(\.\/)+/, '')
+        .replace(/\/+$/, '')
+        .replace(/^\.$/, '');
+}
+/**
+ * Whether a changed file's new content differs: an added or modified file,
+ * or a renamed or copied one that was also edited.
+ */
+function addsContent(file) {
+    switch (file.status) {
+        case 'added':
+        case 'modified':
+            return true;
+        case 'renamed':
+        case 'copied':
+            return file.changes > 0;
+        default:
+            return false;
+    }
 }
 async function run() {
     try {
         const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-        external_node_assert_(GITHUB_TOKEN);
+        if (!GITHUB_TOKEN) {
+            throw new Error('GITHUB_TOKEN is not set. Add `env: GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` to this step.');
+        }
         const octokit = getOctokit(GITHUB_TOKEN);
         const types = getMultilineInput('types');
-        const scopes = getJsonInput('scopes');
+        const scopes = getScopesInput();
         const filePath = getInput('path');
         info(`Action types: ${types}`);
         if (scopes)
@@ -38942,7 +38969,7 @@ async function run() {
         core_debug(`Payload keys: ${Object.keys(github_context.payload)}`);
         const contextPullRequest = github_context.payload.pull_request;
         if (!contextPullRequest) {
-            throw new Error("This action can only be invoked in `pull_request_target` or `pull_request` events. Otherwise the pull request can't be inferred.");
+            throw new Error(`This action only runs on pull_request or pull_request_target events, not ${github_context.eventName}.`);
         }
         const owner = contextPullRequest.base.user.login;
         const repo = contextPullRequest.base.repo.name;
@@ -38957,78 +38984,67 @@ async function run() {
         });
         // Validate if PrTitle is conventional and matches one of [types]
         const { type: prType, scopes: prScopes, breaking: prBreaking } = await validatePrTitle(pullRequest.title, scopes ? Object.keys(scopes) : undefined);
-        const breaking = prBreaking || types.includes(prType);
+        const needsChangelog = prBreaking || types.includes(prType);
         info(`PR type: ${prType}`);
         if (prScopes)
             info(`PR scopes: ${prScopes}`);
-        info(`PR breaking: ${breaking}`);
-        if (breaking) {
-            // Define the base and head commits to be extracted from the context.
-            const base = contextPullRequest?.base?.sha;
-            const head = contextPullRequest?.head?.sha;
-            // Log the base and head commits
-            info(`Base commit: ${base}`);
-            info(`Head commit: ${head}`);
-            // Ensure that the base and head properties are set on the payload.
-            if (!base || !head) {
-                throw new Error(`The base and head commits are missing from the payload for this ${github_context.eventName} event. Please submit an issue on this action's GitHub repo.`);
+        info(`PR needs a changelog entry: ${needsChangelog}`);
+        if (!needsChangelog) {
+            info(`Skipped: "${pullRequest.title}" is not a type that needs a changelog entry.`);
+            return;
+        }
+        // The changelogs this pull request has to update, each with the scope
+        // that requires it.
+        const required = [];
+        if (scopes && prScopes) {
+            const unknownScopes = prScopes.filter(scope => !(scope in scopes));
+            if (unknownScopes.length > 0) {
+                warning(`Scope ${unknownScopes.map(s => `"${s}"`).join(', ')} is not in the scopes input, so its changelog is not checked. Known scopes: ${Object.keys(scopes).join(', ')}.`);
             }
-            // Use GitHub's compare two commits API.
-            // https://developer.github.com/v3/repos/commits/#compare-two-commits
-            const response = await octokit.rest.repos.compareCommits({
-                base,
-                head,
-                owner: github_context.repo.owner,
-                repo: github_context.repo.repo
-            });
-            // Ensure that the request was successful.
-            if (response.status !== 200) {
-                throw new Error(`The GitHub API for comparing the base and head commits for this ${github_context.eventName} event returned ${response.status}, expected 200. Please submit an issue on this action's GitHub repo.`);
+            for (const scope of prScopes.filter(s => s in scopes)) {
+                const scopePath = normalizeDir(scopes[scope]);
+                const path = scopePath !== '' ? `${scopePath}/${filePath}` : filePath;
+                required.push({ path, scope });
             }
-            // Ensure that the head commit is ahead of the base commit.
-            if (response.data.status !== 'ahead') {
-                throw new Error(`The head commit for this ${github_context.eventName} event is not ahead of the base commit. Please submit an issue on this action's GitHub repo.`);
-            }
-            // Get the changed files from the response payload.
-            const modifiedFiles = response.data.files?.filter(file => file.status === 'modified');
-            if (modifiedFiles) {
-                const verifyChangelogModified = (fileName, scope = 'repo') => {
-                    const changelogModified = modifiedFiles.some(file => file.filename.toUpperCase() === fileName.toUpperCase());
-                    if (!changelogModified) {
-                        throw new Error(`File "${fileName}" of the pull request: "${pullRequest.title}" not updated for the scope "${scope}".`);
-                    }
-                };
-                if (scopes && prScopes) {
-                    const verifiableScopes = prScopes.filter(scope => Object.keys(scopes).includes(scope));
-                    if (verifiableScopes.length > 0) {
-                        for (const scope of verifiableScopes) {
-                            let path = filePath;
-                            const scopePath = scopes[scope];
-                            if (scopePath !== '' && scopePath !== '.') {
-                                path = `${scopePath}/${filePath}`;
-                            }
-                            verifyChangelogModified(path, scope);
-                        }
-                        info(`Success: Successfully verified pull request: "${pullRequest.title}", Found "${filePath}" updated in all these scopes: ${verifiableScopes}.`);
-                    }
-                    else {
-                        info(`Skipped: Skipping verification, ${prScopes} is a not a known scope.`);
-                    }
-                }
-                else {
-                    verifyChangelogModified(filePath);
-                    info(`Success: Successfully verified pull request: "${pullRequest.title}".`);
-                }
+            if (required.length === 0) {
+                info('Skipped: none of the scopes in the title has a changelog.');
+                return;
             }
         }
         else {
-            info(`Skipped: Skipping verification, Pull request: "${pullRequest.title}" is a not a breaking PR.`);
+            required.push({ path: filePath });
         }
+        // The pull request's own file list holds every change since the branch
+        // point, also when the base branch has moved on since then.
+        const files = await octokit.paginate(octokit.rest.pulls.listFiles, {
+            owner,
+            repo,
+            pull_number: contextPullRequest.number,
+            per_page: 100
+        });
+        if (files.length === 0) {
+            throw new Error(`This pull request has no changes to check: every commit on \`${pullRequest.head.ref}\` is already on \`${pullRequest.base.ref}\`. Push your changes, or close the pull request if they have already been merged.`);
+        }
+        const updated = new Set(files.filter(addsContent).map(file => file.filename.toUpperCase()));
+        const missing = required.filter(({ path }) => !updated.has(path.toUpperCase()));
+        if (missing.length > 0) {
+            const reason = prBreaking
+                ? 'is a breaking change'
+                : `is a \`${prType}\` change`;
+            const list = missing
+                .map(({ path, scope }) => scope ? `\`${path}\` (scope \`${scope}\`)` : `\`${path}\``)
+                .join(', ');
+            throw new Error(`\`${pullRequest.title}\` ${reason}, so it must add an entry to every changelog it affects. Missing: ${list}.`);
+        }
+        info(`Success: "${pullRequest.title}" updates ${required.map(({ path }) => path).join(', ')}.`);
     }
     catch (error) {
         setFailed(error instanceof Error ? error.message : String(error));
     }
 }
+
+;// CONCATENATED MODULE: ./lib/main.js
+
 run();
 
 

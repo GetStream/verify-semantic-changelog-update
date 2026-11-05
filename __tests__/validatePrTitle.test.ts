@@ -52,6 +52,26 @@ describe('validatePrTitle', () => {
     )
   })
 
+  it('gives an example when the subject is missing', async () => {
+    await expect(validatePrTitle('feat(ui): ', ['ui'])).rejects.toThrow(
+      'Add a description after the colon'
+    )
+  })
+
+  it('shows the expected shape when the scope is missing', async () => {
+    await expect(
+      validatePrTitle('feat: add a button', ['ui', 'llc'])
+    ).rejects.toThrow(
+      'e.g. "feat(ui): add a button". Available scopes: ui, llc.'
+    )
+  })
+
+  it('has no stray space before the type list', async () => {
+    await expect(validatePrTitle('feature: x', undefined)).rejects.toThrow(
+      '"feature: x".\n\nAvailable types'
+    )
+  })
+
   it('lists the available types in the error', async () => {
     await expect(validatePrTitle('feature: x', undefined)).rejects.toThrow(
       ' - feat: A new feature'
