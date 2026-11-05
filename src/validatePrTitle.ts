@@ -36,20 +36,22 @@ export async function validatePrTitle(
   }
 
   if (!result.subject) {
-    throw new Error(`No subject found in pull request title "${prTitle}".`)
+    throw new Error(
+      `No subject found in pull request title "${prTitle}". Add a description after the colon, e.g. "fix(ui): stop a crash on scroll".`
+    )
   }
 
   if (!types.includes(result.type)) {
     throw new Error(
       `Unknown release type "${
         result.type
-      }" found in pull request title "${prTitle}". \n\n${printAvailableTypes()}`
+      }" found in pull request title "${prTitle}".\n\n${printAvailableTypes()}`
     )
   }
 
   if (scopes && !result.scope) {
     throw new Error(
-      `No scope found in pull request title "${prTitle}". Use one of the available scopes: ${scopes.join(
+      `No scope found in pull request title "${prTitle}". Put a scope in parentheses after the type, e.g. "${result.type}(${scopes[0] ?? 'scope'}): ${result.subject}". Available scopes: ${scopes.join(
         ', '
       )}.`
     )
