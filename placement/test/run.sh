@@ -357,6 +357,10 @@ expect_run 'a 500 on the base fails the run' 1
 expect_no_output '  without blaming permissions' 'The workflow needs'
 
 mock_reset
+expect_run 'a push event fails the run' 1 PR= EVENT=push
+expect_output '  naming the event' '::error::Verify Changelog Placement only runs on pull_request or pull_request_target events, not push.'
+
+mock_reset
 touch "$MOCK/forbidden/files"
 expect_run 'a 403 listing the files fails the run' 1
 expect_output '  naming the permission' '::error::Could not list the files of pull request #7. The workflow needs `permissions: pull-requests: read`.'

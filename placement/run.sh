@@ -5,7 +5,8 @@
 #
 #   GH_TOKEN        token for the GitHub API
 #   REPO            owner/name of the base repository
-#   PR              pull request number
+#   EVENT           name of the event that ran the workflow
+#   PR              pull request number, blank outside a pull request event
 #   BASE_SHA        tip of the base branch
 #   HEAD_BRANCH     head branch, blank for a pull request from a fork
 #   OVERRIDE        `true` skips the check
@@ -18,7 +19,12 @@
 
 set -euo pipefail
 
-: "${GH_TOKEN:?}" "${REPO:?}" "${PR:?}" "${BASE_SHA:?}"
+if [ -z "${PR:-}" ]; then
+  echo "::error::Verify Changelog Placement only runs on pull_request or pull_request_target events, not ${EVENT:-this event}."
+  exit 1
+fi
+
+: "${GH_TOKEN:?}" "${REPO:?}" "${BASE_SHA:?}"
 
 if [ "${OVERRIDE:-false}" = 'true' ]; then
   echo 'The override label is set; skipping the placement check.'
