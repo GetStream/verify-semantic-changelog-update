@@ -19,5 +19,5 @@ inputs:
     description: 'Changelog path.'
     default: 'changelog.md'
 runs:
-  using: 'node12'
+  using: 'node24'
   main: 'dist/index.js'

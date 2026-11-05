@@ -1,7 +1,7 @@
 import * as core from '@actions/core'
 import {context, getOctokit} from '@actions/github'
-import {validatePrTitle} from './validatePrTitle'
-import assert from 'assert'
+import {validatePrTitle} from './validatePrTitle.js'
+import assert from 'node:assert'
 
 /**
  * Gets the values of an JSON input.
@@ -54,7 +54,7 @@ async function run(): Promise<void> {
     // the user updates the title and re-runs the workflow, it would
     // be outdated. Therefore fetch the pull request via the REST API
     // to ensure we use the current title.
-    const {data: pullRequest} = await octokit.pulls.get({
+    const {data: pullRequest} = await octokit.rest.pulls.get({
       owner,
       repo,
       pull_number: contextPullRequest.number
@@ -94,7 +94,7 @@ async function run(): Promise<void> {
 
       // Use GitHub's compare two commits API.
       // https://developer.github.com/v3/repos/commits/#compare-two-commits
-      const response = await octokit.repos.compareCommits({
+      const response = await octokit.rest.repos.compareCommits({
         base,
         head,
         owner: context.repo.owner,
@@ -168,7 +168,7 @@ async function run(): Promise<void> {
       )
     }
   } catch (error) {
-    core.setFailed(error.message)
+    core.setFailed(error instanceof Error ? error.message : String(error))
   }
 }
 

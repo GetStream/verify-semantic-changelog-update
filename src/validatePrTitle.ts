@@ -1,6 +1,6 @@
-import conventionalCommitsConfig from 'conventional-changelog-conventionalcommits'
-import conventionalCommitTypes from 'conventional-commit-types'
-import {sync as parser} from 'conventional-commits-parser'
+import createPreset from 'conventional-changelog-conventionalcommits'
+import conventionalCommitTypes from 'conventional-commit-types' with {type: 'json'}
+import {CommitParser, type ParserOptions} from 'conventional-commits-parser'
 
 export async function validatePrTitle(
   prTitle: string,
@@ -11,16 +11,19 @@ export async function validatePrTitle(
   subject: string
   breaking: boolean
 }> {
-  const types = Object.keys(conventionalCommitTypes.types)
+  const commitTypes: Record<string, {description: string}> =
+    conventionalCommitTypes.types
+  const types = Object.keys(commitTypes)
 
-  const {parserOpts} = await conventionalCommitsConfig()
-  const result = parser(prTitle, parserOpts)
+  // The preset's typings declare `{}`; at runtime it carries the parser options.
+  const {parser: parserOpts} = createPreset() as {parser: ParserOptions}
+  const result = new CommitParser(parserOpts).parse(prTitle)
 
   function printAvailableTypes(): string {
     return `Available types:\n${types
       .map(type => {
         let bullet = ` - ${type}`
-        bullet += `: ${conventionalCommitTypes.types[type].description}`
+        bullet += `: ${commitTypes[type].description}`
         return bullet
       })
       .join('\n')}`
@@ -53,15 +56,12 @@ export async function validatePrTitle(
   }
 
   const givenScopes = result.scope
-    ? (result.scope as string).split(',').map(scope => scope.trim())
+    ? result.scope.split(',').map(scope => scope.trim())
     : undefined
 
-  let isBreakingChange = false
-  if (result.notes) {
-    isBreakingChange = (result.notes as {title: string; text: string}[]).some(
-      note => note.title === 'BREAKING CHANGE'
-    )
-  }
+  const isBreakingChange = result.notes.some(
+    note => note.title === 'BREAKING CHANGE'
+  )
 
   return {
     type: result.type,
