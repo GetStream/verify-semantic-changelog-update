@@ -38930,7 +38930,10 @@ function getScopesInput() {
  * `packages/ui` name the same directory. `.` becomes the empty string.
  */
 function normalizeDir(dir) {
-    return dir.replace(/^(\.\/)+/, '').replace(/\/+$/, '').replace(/^\.$/, '');
+    return dir
+        .replace(/^(\.\/)+/, '')
+        .replace(/\/+$/, '')
+        .replace(/^\.$/, '');
 }
 /**
  * Whether a changed file's new content differs: an added or modified file,
