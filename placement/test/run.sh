@@ -302,6 +302,16 @@ expect_run 'a branch behind its base compares against the merge base' 0
 echo main > "$MOCK/merge_base"
 expect_run 'the same branch against the base tip would fail' 1
 expect_output '  as a removed version' '- `## 0.6.0` was removed'
+
+mock_reset
+mock_files modified:packages/a/CHANGELOG.md
+released | mock_file fork packages/a/CHANGELOG.md
+released | sed 's/as well/too/' | mock_file main packages/a/CHANGELOG.md
+{ echo '## Upcoming'; echo; echo '- Added X.'; echo; released; } | mock_file refs/pull/7/head packages/a/CHANGELOG.md
+expect_run 'a published section edited on the base after the branch point passes' 0
+echo main > "$MOCK/merge_base"
+expect_run 'the same branch against the base tip would fail' 1
+expect_output '  as a modified version' '- `## 0.5.1+1` was modified'
 rm "$MOCK/merge_base"
 expect_run 'a failing compare fails the run' 1
 expect_output '  saying why' 'Could not find where pull request #7 branched off'
