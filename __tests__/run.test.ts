@@ -3,6 +3,7 @@ import {beforeEach, describe, expect, it, jest} from '@jest/globals'
 interface File {
   filename: string
   status: string
+  changes?: number
 }
 
 const inputs: Record<string, string> = {}
@@ -90,6 +91,49 @@ describe('run', () => {
     expect(failure()).toContain('Missing: `packages/ui/changelog.md`')
   })
 
+  it('counts a renamed changelog only when it was also edited', async () => {
+    files = [
+      {filename: 'packages/ui/CHANGELOG.md', status: 'renamed', changes: 0}
+    ]
+    await run()
+    expect(failure()).toContain('Missing: `packages/ui/changelog.md`')
+
+    setFailed.mockClear()
+    files = [
+      {filename: 'packages/ui/CHANGELOG.md', status: 'renamed', changes: 3}
+    ]
+    await run()
+    expect(failure()).toBeUndefined()
+  })
+
+  it('does not count a mode-only change', async () => {
+    files = [
+      {filename: 'packages/ui/CHANGELOG.md', status: 'changed', changes: 0}
+    ]
+    await run()
+    expect(failure()).toContain('Missing: `packages/ui/changelog.md`')
+  })
+
+  it.each(['./packages/ui', 'packages/ui/', './packages/ui/'])(
+    'matches a scope path written as %s',
+    async scopePath => {
+      inputs.scopes = JSON.stringify({ui: scopePath})
+      files = [{filename: 'packages/ui/CHANGELOG.md', status: 'modified'}]
+      await run()
+      expect(failure()).toBeUndefined()
+    }
+  )
+
+  it.each(['', '.', './'])(
+    'checks the top-level changelog for scope path "%s"',
+    async scopePath => {
+      inputs.scopes = JSON.stringify({ui: scopePath})
+      files = [{filename: 'CHANGELOG.md', status: 'modified'}]
+      await run()
+      expect(failure()).toBeUndefined()
+    }
+  )
+
   it('lists every missing scope and says why', async () => {
     title = 'fix(llc, ui): stop a crash'
     files = [{filename: 'packages/ui/a.dart', status: 'modified'}]
@@ -140,6 +184,16 @@ describe('run', () => {
     expect(failure()).toContain('(scope `ui`)')
   })
 
+  it('skips when every scope in the title is unknown', async () => {
+    title = 'feat(uii): add a button'
+    await run()
+    expect(failure()).toBeUndefined()
+    expect(warning).toHaveBeenCalled()
+    expect(info).toHaveBeenCalledWith(
+      'Skipped: none of the scopes in the title has a changelog.'
+    )
+  })
+
   it('reports a pull request with no changes', async () => {
     await run()
     expect(failure()).toBe(
@@ -150,7 +204,9 @@ describe('run', () => {
   it('says how to set a missing token', async () => {
     delete process.env.GITHUB_TOKEN
     await run()
-    expect(failure()).toContain('GITHUB_TOKEN is not set.')
+    expect(failure()).toBe(
+      'GITHUB_TOKEN is not set. Add `env: GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` to this step.'
+    )
   })
 
   it('names the scopes input when its JSON is invalid', async () => {

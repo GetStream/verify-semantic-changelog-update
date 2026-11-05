@@ -20,12 +20,40 @@ function getScopesInput(): Scopes | undefined {
   }
 }
 
+/**
+ * Strips a leading `./` and trailing slashes, so `./packages/ui/` and
+ * `packages/ui` name the same directory. `.` becomes the empty string.
+ */
+function normalizeDir(dir: string): string {
+  return dir
+    .replace(/^(\.\/)+/, '')
+    .replace(/\/+$/, '')
+    .replace(/^\.$/, '')
+}
+
+/**
+ * Whether a changed file's new content differs: an added or modified file,
+ * or a renamed or copied one that was also edited.
+ */
+function addsContent(file: {status: string; changes: number}): boolean {
+  switch (file.status) {
+    case 'added':
+    case 'modified':
+      return true
+    case 'renamed':
+    case 'copied':
+      return file.changes > 0
+    default:
+      return false
+  }
+}
+
 export async function run(): Promise<void> {
   try {
     const GITHUB_TOKEN = process.env.GITHUB_TOKEN
     if (!GITHUB_TOKEN) {
       throw new Error(
-        'GITHUB_TOKEN is not set. Add `env: GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` to this step. On pull_request events from forks the token is not available; use pull_request_target.'
+        'GITHUB_TOKEN is not set. Add `env: GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` to this step.'
       )
     }
     const octokit = getOctokit(GITHUB_TOKEN)
@@ -95,11 +123,8 @@ export async function run(): Promise<void> {
         )
       }
       for (const scope of prScopes.filter(s => s in scopes)) {
-        const scopePath = scopes[scope]
-        const path =
-          scopePath !== '' && scopePath !== '.'
-            ? `${scopePath}/${filePath}`
-            : filePath
+        const scopePath = normalizeDir(scopes[scope])
+        const path = scopePath !== '' ? `${scopePath}/${filePath}` : filePath
         required.push({path, scope})
       }
       if (required.length === 0) {
@@ -126,9 +151,7 @@ export async function run(): Promise<void> {
     }
 
     const updated = new Set(
-      files
-        .filter(file => file.status !== 'removed')
-        .map(file => file.filename.toUpperCase())
+      files.filter(addsContent).map(file => file.filename.toUpperCase())
     )
 
     const missing = required.filter(

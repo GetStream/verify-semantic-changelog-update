@@ -38925,11 +38925,34 @@ function getScopesInput() {
         throw new Error(`The scopes input is not valid JSON: ${reason}`);
     }
 }
+/**
+ * Strips a leading `./` and trailing slashes, so `./packages/ui/` and
+ * `packages/ui` name the same directory. `.` becomes the empty string.
+ */
+function normalizeDir(dir) {
+    return dir.replace(/^(\.\/)+/, '').replace(/\/+$/, '').replace(/^\.$/, '');
+}
+/**
+ * Whether a changed file's new content differs: an added or modified file,
+ * or a renamed or copied one that was also edited.
+ */
+function addsContent(file) {
+    switch (file.status) {
+        case 'added':
+        case 'modified':
+            return true;
+        case 'renamed':
+        case 'copied':
+            return file.changes > 0;
+        default:
+            return false;
+    }
+}
 async function run() {
     try {
         const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
         if (!GITHUB_TOKEN) {
-            throw new Error('GITHUB_TOKEN is not set. Add `env: GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` to this step. On pull_request events from forks the token is not available; use pull_request_target.');
+            throw new Error('GITHUB_TOKEN is not set. Add `env: GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` to this step.');
         }
         const octokit = getOctokit(GITHUB_TOKEN);
         const types = getMultilineInput('types');
@@ -38976,10 +38999,8 @@ async function run() {
                 warning(`Scope ${unknownScopes.map(s => `"${s}"`).join(', ')} is not in the scopes input, so its changelog is not checked. Known scopes: ${Object.keys(scopes).join(', ')}.`);
             }
             for (const scope of prScopes.filter(s => s in scopes)) {
-                const scopePath = scopes[scope];
-                const path = scopePath !== '' && scopePath !== '.'
-                    ? `${scopePath}/${filePath}`
-                    : filePath;
+                const scopePath = normalizeDir(scopes[scope]);
+                const path = scopePath !== '' ? `${scopePath}/${filePath}` : filePath;
                 required.push({ path, scope });
             }
             if (required.length === 0) {
@@ -39001,9 +39022,7 @@ async function run() {
         if (files.length === 0) {
             throw new Error(`This pull request has no changes to check: every commit on \`${pullRequest.head.ref}\` is already on \`${pullRequest.base.ref}\`. Push your changes, or close the pull request if they have already been merged.`);
         }
-        const updated = new Set(files
-            .filter(file => file.status !== 'removed')
-            .map(file => file.filename.toUpperCase()));
+        const updated = new Set(files.filter(addsContent).map(file => file.filename.toUpperCase()));
         const missing = required.filter(({ path }) => !updated.has(path.toUpperCase()));
         if (missing.length > 0) {
             const reason = prBreaking
